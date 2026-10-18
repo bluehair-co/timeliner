@@ -1,5 +1,6 @@
 // ---------- state ----------
-var D = null;   // all trips and stays (typed arrays)
+var D = null;   // all trips and stays (typed arrays), with Strava laid over Timeline
+var RAW = null; // the same as loaded and saved, before Strava is laid over
 var M = null;   // facts about D: years, modes, countries, days
 var F = null;   // the filters, shared by every tab
 var sel = new Int32Array(0), selV = new Int32Array(0);   // trips and stays that pass, oldest first
@@ -53,7 +54,8 @@ function tagCountries() {
 }
 
 function setData(R) {
-  D = upgrade(R);
+  RAW = upgrade(R);
+  D = withStrava(RAW);
   $('app').classList.remove('no-data');
   var n = D.day.length, nv = D.vs.length, i, yc = {}, present = {};
   D.year = new Int16Array(n); D.month = new Int8Array(n); D.dow = new Int8Array(n); D.hour = new Int8Array(n);
@@ -429,7 +431,10 @@ function setStatus(text, isErr) {
   if (text && D) toast(text);
 }
 // Combine exports. When several cover the same day, the newest kind of export wins for that day.
+// Strava activities are kept apart (R.strava) and laid over the Timeline trips by withStrava.
 function merge(base, parts) {
+  var sv = parts.filter(function (p) { return p.strava; });
+  parts = parts.filter(function (p) { return !p.strava; });
   var all = (base ? [upgrade(base)] : []).concat(parts.map(upgrade)), total = 0;
   function src(p, i) { return p.srcs ? p.srcs[i] : p.src; }
   function vsrc(p, i) { return p.vsrcs && p.vsrcs.length ? p.vsrcs[i] : p.src; }
@@ -454,12 +459,29 @@ function merge(base, parts) {
     return !(p.start[x[1]] === q.start[y[1]] && p.mode[x[1]] === q.mode[y[1]]);
   });
   var vout = vidx.filter(function (x, j) { return !j || all[x[0]].vs[x[1]] !== all[vidx[j - 1][0]].vs[vidx[j - 1][1]]; });
-  var n = out.length, nv = vout.length;
+  var nv = vout.length;
+  var R = gather(all, out, src);
+  R.vs = new Float64Array(nv); R.ve = new Float64Array(nv); R.vday = new Int32Array(nv); R.voff = new Int16Array(nv); R.vll = new Float32Array(2 * nv); R.vtype = new Uint8Array(nv); R.vname = []; R.vsrcs = new Uint8Array(nv);
+  R.files = (base ? base.files || [] : []).concat(parts.concat(sv).map(function (p) { return { name: p.name, kind: p.kind }; }));
+  vout.forEach(function (x, j) {
+    var p = all[x[0]], i = x[1];
+    R.vs[j] = p.vs[i]; R.ve[j] = p.ve[i]; R.vday[j] = p.vday[i]; R.voff[j] = p.voff[i];
+    R.vll[2 * j] = p.vll[2 * i]; R.vll[2 * j + 1] = p.vll[2 * i + 1]; R.vtype[j] = p.vtype[i]; R.vname.push(p.vname[i] || ''); R.vsrcs[j] = vsrc(p, i);
+  });
+  R.dropped = total - out.length;
+  // Strava: the same activity loaded twice (an export, then a newer one) is kept once.
+  var sall = (base && base.strava ? [base.strava] : []).concat(sv), sidx = [];
+  sall.forEach(function (p, pi) { for (var i = 0; i < p.start.length; i++) sidx.push([pi, i]); });
+  sidx.sort(function (a, b) { return sall[a[0]].start[a[1]] - sall[b[0]].start[b[1]]; });
+  sidx = sidx.filter(function (x, j) { return !j || sall[x[0]].start[x[1]] - sall[sidx[j - 1][0]].start[sidx[j - 1][1]] > 60000; });
+  if (sidx.length) R.strava = gather(sall, sidx, function () { return SRC.strava; });
+  return R;
+}
+// The trips at [[part, index], …] as one set of arrays.
+function gather(all, out, src) {
+  var n = out.length, npts = 0;
   var R = { start: new Float64Array(n), end: new Float64Array(n), day: new Int32Array(n), mode: new Uint8Array(n),
-    km: new Float32Array(n), est: new Uint8Array(n), off: new Int16Array(n), orig: new Float32Array(n), from: new Float32Array(2 * n), to: new Float32Array(2 * n), srcs: new Uint8Array(n),
-    vs: new Float64Array(nv), ve: new Float64Array(nv), vday: new Int32Array(nv), voff: new Int16Array(nv), vll: new Float32Array(2 * nv), vtype: new Uint8Array(nv), vname: [], vsrcs: new Uint8Array(nv),
-    files: (base ? base.files || [] : []).concat(parts.map(function (p) { return { name: p.name, kind: p.kind }; })) };
-  var npts = 0;
+    km: new Float32Array(n), est: new Uint8Array(n), off: new Int16Array(n), orig: new Float32Array(n), from: new Float32Array(2 * n), to: new Float32Array(2 * n), srcs: new Uint8Array(n) };
   out.forEach(function (x) { var p = all[x[0]]; npts += p.pathOff[x[1] + 1] - p.pathOff[x[1]]; });
   R.pathPts = new Float32Array(2 * npts); R.pathT = new Float32Array(npts); R.pathOff = new Uint32Array(n + 1);
   var w = 0;
@@ -472,13 +494,65 @@ function merge(base, parts) {
     for (var q = p.pathOff[i]; q < p.pathOff[i + 1]; q++, w++) { R.pathPts[2 * w] = p.pathPts[2 * q]; R.pathPts[2 * w + 1] = p.pathPts[2 * q + 1]; R.pathT[w] = p.pathT[q]; }
     R.pathOff[j + 1] = w;
   });
-  vout.forEach(function (x, j) {
-    var p = all[x[0]], i = x[1];
-    R.vs[j] = p.vs[i]; R.ve[j] = p.ve[i]; R.vday[j] = p.vday[i]; R.voff[j] = p.voff[i];
-    R.vll[2 * j] = p.vll[2 * i]; R.vll[2 * j + 1] = p.vll[2 * i + 1]; R.vtype[j] = p.vtype[i]; R.vname.push(p.vname[i] || ''); R.vsrcs[j] = vsrc(p, i);
-  });
-  R.dropped = total - n;
   return R;
+}
+
+// Strava activities replace the Timeline trips they cover: a trip at least half inside an
+// activity's time is the same journey recorded less precisely, whatever transport Timeline
+// thought it was. Activities Timeline missed are added. Flights are never replaced.
+// R itself is left as loaded (it is what gets saved); the result also has repl, the number
+// of Timeline trips each Strava trip replaced, and stravaStats.
+function withStrava(R) {
+  var S = R.strava;
+  if (!S || !S.start.length) return R;
+  var n = R.start.length, m = S.start.length, i, j, k, fly = MODES.indexOf('FLYING');
+  var ord = Array.from({ length: n }, function (_, x) { return x; }).sort(function (a, b) { return R.start[a] - R.start[b]; });
+  var maxDur = 0;
+  for (i = 0; i < n; i++) if (R.mode[i] !== fly) maxDur = Math.max(maxDur, R.end[i] - R.start[i]);
+  function first(t) { var lo = 0, hi = n; while (lo < hi) { var mid = (lo + hi) >> 1; if (R.start[ord[mid]] < t) lo = mid + 1; else hi = mid; } return lo; }
+  var drop = new Uint8Array(n), cnt = new Uint16Array(m), off = new Int16Array(m), matched = 0, replaced = 0;
+  for (k = 0; k < m; k++) {
+    var s = S.start[k], e = S.end[k], o = NO_OFF;
+    for (j = first(s - maxDur); j < n && R.start[ord[j]] < e; j++) {
+      i = ord[j];
+      if (R.mode[i] === fly) continue;
+      var dur = R.end[i] - R.start[i], ov = Math.min(e, R.end[i]) - Math.max(s, R.start[i]);
+      if (dur > 0 ? ov >= dur / 2 : R.start[i] >= s) {
+        if (!drop[i]) { drop[i] = 1; replaced++; }
+        cnt[k]++;
+        if (o === NO_OFF) o = R.off[i];
+      }
+    }
+    if (cnt[k]) matched++;
+    // No trip to take the local time from: use the nearest trip within 3 days that has one.
+    for (var step = 0, at = first(s); o === NO_OFF && step < 40; step++) {
+      var a = ord[at - 1 - step], b = ord[at + step];
+      if (b != null && R.off[b] !== NO_OFF && R.start[b] - s < 3 * 864e5) o = R.off[b];
+      else if (a != null && R.off[a] !== NO_OFF && s - R.start[a] < 3 * 864e5) o = R.off[a];
+    }
+    off[k] = o;
+  }
+  var list = [];
+  for (i = 0; i < n; i++) if (!drop[i]) list.push([0, i]);
+  for (k = 0; k < m; k++) list.push([1, k]);
+  list.sort(function (x, y) { return (x[0] ? S : R).start[x[1]] - (y[0] ? S : R).start[y[1]]; });
+  var O = gather([R, S], list, function (p, x) { return p === S ? SRC.strava : p.srcs ? p.srcs[x] : 0; });
+  O.repl = new Uint16Array(list.length);
+  list.forEach(function (x, j) {
+    if (!x[0]) return;
+    var k_ = x[1];
+    O.repl[j] = cnt[k_];
+    O.est[j] |= STRAVA;
+    if (off[k_] !== NO_OFF) { O.off[j] = off[k_]; O.day[j] = Math.floor((S.start[k_] + off[k_] * 60000) / 864e5); }
+  });
+  ['vs', 've', 'vday', 'voff', 'vll', 'vtype', 'vname', 'vsrcs', 'files', 'strava'].forEach(function (key) { O[key] = R[key]; });
+  O.stravaStats = { acts: m, matched: matched, replaced: replaced, added: m - matched };
+  return O;
+}
+function stravaText(st) {
+  if (!st) return '';
+  return fmt(st.acts) + ' Strava ' + (st.acts === 1 ? 'activity' : 'activities') + ': ' + fmt(st.matched) + ' replaced ' + fmt(st.replaced) + ' Timeline trip' + (st.replaced === 1 ? '' : 's') +
+    (st.added ? ', ' + fmt(st.added) + ' added where Timeline had nothing' : '') + '.';
 }
 function runParser(files) {
   return new Promise(function (resolve) {
@@ -509,28 +583,32 @@ function runParser(files) {
   });
 }
 function importFiles(list) {
-  var files = Array.prototype.filter.call(list, function (f) { return /\.json$/i.test(f.name); });
-  if (!files.length) { setStatus('No .json files found there.', true); return; }
+  var files = Array.prototype.filter.call(list, function (f) { return /\.json$/i.test(f.name) || isStravaName(f.name); });
+  if (!files.length) { setStatus('No Timeline (.json) or Strava files found there.', true); return; }
   setStatus('');
   busy('Reading…');
   runParser(files).then(function (r) {
     if (!r.results.length) { busy(''); setStatus(r.errors.length ? r.errors.join(' · ') : NOT_TIMELINE, true); return; }
     busy('Preparing your map…');
     setTimeout(function () {
-      var next = merge(D, r.results);
+      var next = merge(RAW, r.results);
       saveData(next);
       setData(next);
       busy('');
       var nv = next.vs.length;
-      var msg = 'Loaded ' + tripsText(next.day.length) + (nv ? ' and ' + fmt(nv) + ' stays' : '') + ' from ' + r.results.length + ' file' + (r.results.length > 1 ? 's' : '') + '.';
+      var onlyStrava = r.results.every(function (x) { return x.strava; });
+      var msg = onlyStrava ? '' : 'Loaded ' + tripsText(D.day.length) + (nv ? ' and ' + fmt(nv) + ' stays' : '') + ' from ' + r.results.length + ' file' + (r.results.length > 1 ? 's' : '') + '.';
       if (r.skipped) msg += ' Skipped ' + r.skipped + ' file' + (r.skipped > 1 ? 's' : '') + ' without Timeline data.';
       if (next.dropped) msg += ' Left out ' + fmt(next.dropped) + ' trips already covered by another export.';
+      if (r.results.some(function (x) { return x.strava; })) msg += ' ' + stravaText(D.stravaStats);
+      msg = msg.trim();
       if (r.errors.length) msg += ' Problems: ' + r.errors.join(' · ');
       setStatus(msg, r.errors.length > 0);
     }, 30);
   });
 }
 $('fileIn').addEventListener('change', function () { closeSheets(); importFiles(this.files); this.value = ''; });
+$('stravaIn').addEventListener('change', function () { closeSheets(); importFiles(this.files); this.value = ''; });
 $('dirIn').addEventListener('change', function () { importFiles(this.files); this.value = ''; });
 document.body.addEventListener('dragover', function (e) { e.preventDefault(); });
 document.body.addEventListener('drop', function (e) { e.preventDefault(); if (e.dataTransfer.files.length) importFiles(e.dataTransfer.files); });
@@ -554,7 +632,7 @@ function saveData(R) {
   try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) { /* ignore */ }
   var keep = {};
   ['start', 'end', 'day', 'mode', 'km', 'est', 'off', 'orig', 'from', 'to', 'srcs', 'pathPts', 'pathT', 'pathOff',
-    'vs', 've', 'vday', 'voff', 'vll', 'vtype', 'vname', 'vsrcs', 'files'].forEach(function (k) { keep[k] = R[k]; });
+    'vs', 've', 'vday', 'voff', 'vll', 'vtype', 'vname', 'vsrcs', 'files', 'strava'].forEach(function (k) { keep[k] = R[k]; });
   return withStore('timeliner', 'readwrite', function (s) { return s.put(keep, 'trips'); }).catch(function () { /* this visit still works */ });
 }
 function loadSaved() {

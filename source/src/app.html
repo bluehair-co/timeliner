@@ -23,6 +23,7 @@
   </section>
   <input type="file" id="fileIn" class="visually-hidden" accept=".json,application/json" multiple>
   <input type="file" id="dirIn" class="visually-hidden" webkitdirectory multiple>
+  <input type="file" id="stravaIn" class="visually-hidden" accept=".zip,.gpx,.fit,.tcx,.gz,application/zip,application/gzip,application/gpx+xml" multiple>
 
   <!-- Map -->
   <section class="page" id="mapPage" aria-label="Map">
@@ -241,8 +242,17 @@
       <p class="fine" id="dataSummary"></p>
       <div style="display:flex;flex-wrap:wrap;gap:8px">
         <label class="btn" for="fileIn"><span data-icon="upload"></span>Import more files</label>
+        <label class="btn" for="stravaIn"><span data-icon="upload"></span>Load Strava export</label>
         <button type="button" class="btn danger" id="forgetBtn">Remove from this device</button>
       </div>
+      <details class="help">
+        <summary>Sharper bike rides from Strava</summary>
+        <p class="fine">Strava activities replace the Timeline trips recorded at the same time, so rides, runs and walks follow Strava's GPS track. Activities Timeline missed are added too.</p>
+        <ol class="fine">
+          <li>On strava.com open <b>Settings → My Account → Download or Delete Your Account</b> and tap <b>Request your archive</b>.</li>
+          <li>Strava emails you a ZIP file. Load it here as it is, without unzipping. Single .gpx, .fit or .tcx files work too.</li>
+        </ol>
+      </details>
       <p class="status" id="importStatus" role="status"></p>
     </div>
     <div class="sec">

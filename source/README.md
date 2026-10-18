@@ -9,6 +9,10 @@ Timeliner 2.0 shows where you've been and how you get around, using your Google 
 
 Your Timeline file is read on the device and is never uploaded.
 
+## Strava
+
+In Settings, *Load Strava export* takes the ZIP from Strava (Settings → My Account → Download or Delete Your Account), or single .gpx, .fit or .tcx files. Only the activity files inside the ZIP are read, so a large export with photos is fine. A Strava activity replaces every Timeline trip that is at least half inside its time (whatever transport Timeline guessed), and activities Timeline missed are added. Virtual rides are skipped. The Strava activities are saved apart from the Timeline trips, so re-importing either one keeps the match.
+
 ## Layout
 
 - **Map:** full-screen map with the time slider at the top. When a single day is chosen, the top bar becomes a day navigator. Filters are bottom-left (the gear there opens Settings). Views and layers are bottom-right: Mercator, Equal Earth or Globe; paths; a heatmap of where you travelled or stayed, with dot size and intensity; and countries visited.

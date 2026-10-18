@@ -1,0 +1,282 @@
+<div id="app" class="no-data">
+
+  <!-- Welcome: shown until a Timeline file is loaded -->
+  <section class="welcome" id="welcome" aria-labelledby="welcomeTitle">
+    <div class="card">
+      <div class="logo"><span data-icon="logo"></span></div>
+      <h1 id="welcomeTitle">Timeliner</h1>
+      <p>See where you've been and how you get around, from your Google Timeline. Your file is read on this device and never uploaded.</p>
+      <div class="acts">
+        <label class="btn primary" for="fileIn"><span data-icon="upload"></span>Load Timeline file</label>
+        <label class="btn quiet desktop-only" for="dirIn">Load a whole folder</label>
+      </div>
+      <p id="welcomeStatus" class="status" role="status"></p>
+      <details class="help">
+        <summary>How to get your Timeline file</summary>
+        <ol>
+          <li>On your Android phone open <b>Settings → Location → Location services → Timeline</b>.</li>
+          <li>Tap <b>Export Timeline data</b> and save <b>Timeline.json</b>.</li>
+          <li>Load it here. Older Google Takeout files (Records.json, Semantic Location History) and iPhone exports work too, and you can load several at once.</li>
+        </ol>
+      </details>
+    </div>
+  </section>
+  <input type="file" id="fileIn" class="visually-hidden" accept=".json,application/json" multiple>
+  <input type="file" id="dirIn" class="visually-hidden" webkitdirectory multiple>
+
+  <!-- Map -->
+  <section class="page" id="mapPage" aria-label="Map">
+    <div id="map" aria-label="Map of your trips"></div>
+    <div id="proj" hidden aria-label="Map of your trips">
+      <canvas></canvas>
+      <div class="proj-zoom"><button type="button" data-z="1.6" aria-label="Zoom in">+</button><button type="button" data-z="0.625" aria-label="Zoom out">−</button></div>
+      <div class="trip-tip proj-tip" hidden></div>
+    </div>
+
+    <div class="topbar" id="topbar">
+      <button type="button" class="bar summary-pill" id="summaryPill"><span id="summaryMain">All trips</span><span class="sub" id="summarySub"></span></button>
+      <div class="bar" id="timeBar" hidden>
+        <div class="bar-top">
+        <div class="daynav" id="dayNav" hidden>
+          <button type="button" class="icon-btn" id="dayPrev" aria-label="Previous day with trips"><span data-icon="left"></span></button>
+          <label class="date-btn"><b id="dayLabel"></b><small id="daySub"></small><input type="date" id="dayPick" aria-label="Pick a day"></label>
+          <button type="button" class="icon-btn" id="dayNext" aria-label="Next day with trips"><span data-icon="right"></span></button>
+        </div>
+        <button type="button" class="range-label summary-pill" id="rangeLabel" hidden style="padding:6px 8px 2px"><b id="rangeMain"></b><small id="rangeSub"></small></button>
+          <button type="button" class="icon-btn scrub-toggle" id="scrubToggle" aria-label="Show time slider" aria-pressed="false" title="Time slider"><span data-icon="clock"></span></button>
+        </div>
+        <div class="scrub">
+          <button type="button" class="play" id="playBtn" aria-label="Play"><span data-icon="play"></span></button>
+          <input type="range" id="scrub" min="0" max="1000" step="1" value="1000" aria-label="Time">
+          <span class="when" id="scrubWhen"></span>
+          <button type="button" class="speed" id="speedBtn" aria-label="Playback speed">1×</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="map-legend" id="mapLegend"></div>
+    <button type="button" class="fab left" id="filtersBtn" aria-label="Filters" aria-controls="filtersSheet" aria-expanded="false"><span data-icon="filter"></span><span class="badge" id="filterBadge" hidden></span></button>
+    <button type="button" class="fab right" id="layersBtn" aria-label="Views and layers" aria-controls="layersSheet" aria-expanded="false"><span data-icon="layers"></span></button>
+  </section>
+
+  <!-- Insights -->
+  <section class="page scroll-page" id="insightsPage" hidden aria-label="Insights">
+    <div class="page-inner">
+      <div class="page-head">
+        <h1>Insights</h1>
+        <button type="button" class="filter-pill" data-open-filters><span data-icon="filter"></span><span class="filter-text"></span></button>
+      </div>
+      <div class="cards">
+        <section class="card wide">
+          <div class="card-head"><h2>Summary</h2><span class="fine" id="sumNote"></span></div>
+          <div class="stats" id="sumStats"></div>
+        </section>
+        <section class="card">
+          <div class="card-head"><h2>How you travel</h2>
+            <div class="seg" role="group" aria-label="Measure" id="splitSeg"><button type="button" data-m="km" aria-pressed="true">Distance</button><button type="button" data-m="h" aria-pressed="false">Time</button><button type="button" data-m="n" aria-pressed="false">Trips</button></div>
+          </div>
+          <div class="bars" id="splitBars"></div>
+        </section>
+        <section class="card">
+          <div class="card-head"><h2>Weekly rhythm</h2><span class="fine">When your trips start, by day and hour, in local time.</span></div>
+          <div id="rhythm"></div>
+        </section>
+        <section class="card wide">
+          <div class="card-head"><h2 id="timeTitle">Over time</h2>
+            <div class="seg" role="group" aria-label="Measure" id="timeSeg"><button type="button" data-m="km" aria-pressed="true">Distance</button><button type="button" data-m="h" aria-pressed="false">Time</button><button type="button" data-m="n" aria-pressed="false">Trips</button><button type="button" data-m="co2" aria-pressed="false">CO₂</button></div>
+            <div class="legend" id="timeLegend" style="width:100%"></div>
+          </div>
+          <div class="chart" id="timeChart"></div>
+        </section>
+        <section class="card">
+          <div class="card-head"><h2>Top routes</h2><span class="fine">Trips between the same two places, either way. Tap one for its latest trip.</span></div>
+          <div class="list-rows" id="topRoutes"></div>
+        </section>
+        <section class="card">
+          <div class="card-head"><h2 id="placesTitle">Top places</h2><span class="fine" id="placesNote"></span></div>
+          <div class="list-rows" id="topPlaces"></div>
+        </section>
+        <section class="card wide">
+          <div class="card-head"><h2>Records</h2><span class="fine">Tap a record to see the trip.</span></div>
+          <div class="records" id="records"></div>
+        </section>
+        <section class="card">
+          <div class="card-head"><h2>Countries</h2><span class="fine" id="ccNote"></span></div>
+          <div class="list-rows" id="ccList"></div>
+        </section>
+        <section class="card">
+          <div class="card-head"><h2>CO₂ from travel</h2><span class="fine">Estimated from average emissions per km. Change the factors in Settings.</span></div>
+          <div id="co2Card"></div>
+        </section>
+      </div>
+    </div>
+  </section>
+
+  <!-- Timeline -->
+  <section class="page" id="timelinePage" hidden aria-label="Timeline">
+    <div class="tl-head">
+      <div class="page-head">
+        <h1>Timeline</h1>
+        <div class="tl-actions">
+          <button type="button" class="filter-pill" data-open-filters><span data-icon="filter"></span><span class="filter-text"></span></button>
+          <label class="icon-btn tl-jump" title="Jump to date"><span data-icon="calendar"></span><span class="visually-hidden">Jump to date</span><input type="date" id="tlJump"></label>
+        </div>
+      </div>
+    </div>
+    <div class="tl-map-wrap" id="tlMapWrap" hidden>
+      <div id="tlMap"></div>
+      <div class="tl-map-info" id="tlMapInfo"></div>
+      <button type="button" class="tl-map-close" id="tlMapClose" aria-label="Close map"><span data-icon="close"></span></button>
+    </div>
+    <div class="tl-list" id="tlList"><div class="tl-inner" id="tlInner"></div></div>
+  </section>
+
+  <!-- Dock -->
+  <nav class="dock" aria-label="Views">
+    <button type="button" data-tab="map" aria-current="page"><span data-icon="pin"></span>Map</button>
+    <button type="button" data-tab="insights"><span data-icon="chart"></span>Insights</button>
+    <button type="button" data-tab="timeline"><span data-icon="history"></span>Timeline</button>
+  </nav>
+</div>
+
+<!-- Filters -->
+<div class="scrim" id="scrim" hidden></div>
+<aside class="sheet" id="filtersSheet" aria-label="Filters" role="dialog">
+  <div class="sheet-head"><h2>Filters</h2>
+    <div class="acts">
+      <button type="button" class="btn quiet" id="resetFilters">Reset</button>
+      <button type="button" class="icon-btn" id="openSettings" aria-label="Settings"><span data-icon="gear"></span></button>
+      <button type="button" class="icon-btn" data-close aria-label="Close"><span data-icon="close"></span></button>
+    </div>
+  </div>
+  <div class="sheet-body">
+    <div class="sec">
+      <h3>Days</h3>
+      <div class="seg full" role="group" aria-label="Which days" id="dayMode">
+        <button type="button" data-dm="all" aria-pressed="true">All</button><button type="button" data-dm="one" aria-pressed="false">Single day</button><button type="button" data-dm="range" aria-pressed="false">Date range</button>
+      </div>
+      <div class="field" id="oneField" hidden><label for="oneDay">Day</label><input type="date" id="oneDay"></div>
+      <div class="grid2" id="rangeFields" hidden>
+        <div class="field"><label for="from">From</label><input type="date" id="from"></div>
+        <div class="field"><label for="to">To</label><input type="date" id="to"></div>
+      </div>
+    </div>
+    <div class="sec">
+      <div class="sec-head"><h3>Years</h3><div class="quick"><button type="button" data-q="years" data-all="1">All</button><button type="button" data-q="years" data-all="0">None</button></div></div>
+      <div class="chips" id="years"></div>
+    </div>
+    <div class="sec">
+      <div class="sec-head"><h3>Months</h3><div class="quick"><button type="button" data-q="months" data-all="1">All</button><button type="button" data-q="months" data-all="0">None</button></div></div>
+      <div class="chips" id="months"></div>
+    </div>
+    <div class="sec">
+      <div class="sec-head"><h3>Days of the week</h3><div class="quick"><button type="button" id="dowWeekdays">Weekdays</button><button type="button" id="dowWeekend">Weekend</button><button type="button" data-q="dows" data-all="1">All</button></div></div>
+      <div class="chips" id="dows"></div>
+    </div>
+    <div class="sec">
+      <div class="sec-head"><h3>Time of day</h3><div class="quick"><button type="button" id="hoursAll">Any time</button></div></div>
+      <div class="grid2">
+        <div class="field"><label for="h0">Starting from</label><select id="h0"></select></div>
+        <div class="field"><label for="h1">Until</label><select id="h1"></select></div>
+      </div>
+    </div>
+    <div class="sec">
+      <div class="sec-head"><h3>Transport</h3><div class="quick"><button type="button" data-q="modes" data-all="1">All</button><button type="button" data-q="modes" data-all="0">None</button></div></div>
+      <div class="chips" id="groupChips"></div>
+      <div class="chips" id="modes"></div>
+      <div id="guessWrap" hidden>
+        <p class="fine" style="margin-bottom:6px">Trips whose type Timeline didn't record <span class="guess">Guessed</span> get one from their speed.</p>
+        <div class="seg" role="group" aria-label="Trips with a guessed type" id="guessSeg">
+          <button type="button" data-g="all" aria-pressed="true">Include</button><button type="button" data-g="no" aria-pressed="false">Leave out</button><button type="button" data-g="only" aria-pressed="false">Only these</button>
+        </div>
+      </div>
+    </div>
+    <div class="sec">
+      <div class="sec-head"><h3>Countries</h3><div class="quick"><button type="button" data-q="countries" data-all="1">All</button><button type="button" data-q="countries" data-all="0">None</button></div></div>
+      <input type="search" id="ccSearch" placeholder="Search countries" hidden>
+      <div class="chips" id="countries"></div>
+      <p class="fine">A trip counts when it starts or ends in a selected country.</p>
+    </div>
+  </div>
+</aside>
+
+<!-- Views and layers -->
+<aside class="sheet right" id="layersSheet" aria-label="Views and layers" role="dialog">
+  <div class="sheet-head"><h2>Map</h2><div class="acts"><button type="button" class="icon-btn" data-close aria-label="Close"><span data-icon="close"></span></button></div></div>
+  <div class="sheet-body">
+    <div class="sec">
+      <h3>View</h3>
+      <div class="seg full" role="group" aria-label="Map projection" id="projSeg">
+        <button type="button" data-proj="merc" aria-pressed="true">Mercator</button><button type="button" data-proj="ee" aria-pressed="false">Equal Earth</button><button type="button" data-proj="globe" aria-pressed="false">Globe</button>
+      </div>
+    </div>
+    <div class="sec" style="gap:0">
+      <h3 style="margin-bottom:4px">Layers</h3>
+      <label class="toggle-row"><span class="lbl">Paths</span><input type="checkbox" class="switch" id="layPaths" checked></label>
+      <label class="toggle-row"><span class="lbl">Heatmap</span><input type="checkbox" class="switch" id="layHeat"></label>
+      <div id="heatOpts" hidden style="display:flex;flex-direction:column;gap:12px;padding:4px 0 12px">
+        <div class="seg full" role="group" aria-label="Heatmap shows" id="heatSrc">
+          <button type="button" data-src="moves" aria-pressed="true">Where I travelled</button><button type="button" data-src="stays" aria-pressed="false">Where I stayed</button>
+        </div>
+        <div class="slider-row"><label for="heatSize">Dot size</label><input type="range" id="heatSize" min="4" max="40" step="1" value="14"></div>
+        <div class="slider-row"><label for="heatGain">Intensity</label><input type="range" id="heatGain" min="0" max="100" step="1" value="50"></div>
+        <p class="fine" id="heatNote"></p>
+      </div>
+      <label class="toggle-row"><span class="lbl">Countries visited</span><input type="checkbox" class="switch" id="layCC"></label>
+    </div>
+    <div class="sec">
+      <button type="button" class="btn" id="fitBtn"><span data-icon="fit"></span>Zoom to my trips</button>
+      <p class="fine" id="mapNote"></p>
+    </div>
+  </div>
+</aside>
+
+<!-- Settings -->
+<aside class="sheet center" id="settingsSheet" aria-label="Settings" role="dialog">
+  <div class="sheet-head"><h2>Settings</h2><div class="acts"><button type="button" class="icon-btn" data-close aria-label="Close"><span data-icon="close"></span></button></div></div>
+  <div class="sheet-body">
+    <div class="sec">
+      <h3>Your data</h3>
+      <p class="fine" id="dataSummary"></p>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        <label class="btn" for="fileIn"><span data-icon="upload"></span>Import more files</label>
+        <button type="button" class="btn danger" id="forgetBtn">Remove from this device</button>
+      </div>
+      <p class="status" id="importStatus" role="status"></p>
+    </div>
+    <div class="sec">
+      <h3>Units</h3>
+      <div class="seg" role="group" aria-label="Distance units" id="unitSeg"><button type="button" data-u="km" aria-pressed="true">Kilometres</button><button type="button" data-u="mi" aria-pressed="false">Miles</button></div>
+    </div>
+    <div class="sec">
+      <h3>Appearance</h3>
+      <div class="seg" role="group" aria-label="Theme" id="themeSeg"><button type="button" data-t="system" aria-pressed="true">System</button><button type="button" data-t="light" aria-pressed="false">Light</button><button type="button" data-t="dark" aria-pressed="false">Dark</button></div>
+    </div>
+    <div class="sec">
+      <h3>Home</h3>
+      <p class="fine" id="homeNote"></p>
+    </div>
+    <div class="sec">
+      <div class="sec-head"><h3>CO₂ estimates</h3><div class="quick"><button type="button" id="resetFactors">Reset</button></div></div>
+      <div class="field"><label for="carType">Your car</label>
+        <select id="carType"><option value="petrol">Petrol</option><option value="diesel">Diesel</option><option value="hybrid">Hybrid</option><option value="ev">Electric</option><option value="custom">Custom (set below)</option></select>
+      </div>
+      <div class="field"><label for="occ">People sharing the car, on average</label><input type="number" id="occ" min="1" max="8" step="0.1" value="1"></div>
+      <label class="toggle-row"><span class="lbl">Count extra warming from flights at altitude</span><input type="checkbox" class="switch" id="rf" checked></label>
+      <details class="help"><summary>Grams of CO₂e per km</summary><div class="factors" id="factors" style="margin-top:8px"></div></details>
+    </div>
+    <div class="sec">
+      <p class="fine">Timeliner 2.0. Map tiles © Esri and its data partners. Towns from GeoNames, airports from OurAirports.</p>
+    </div>
+  </div>
+</aside>
+
+<!-- Trip details -->
+<aside class="sheet right" id="tripSheet" aria-label="Trip" role="dialog">
+  <div class="sheet-head"><h2 id="tripSheetTitle">Trip</h2><div class="acts"><button type="button" class="icon-btn" id="tripBack" aria-label="Back to the list" hidden><span data-icon="left"></span></button><button type="button" class="icon-btn" data-close aria-label="Close"><span data-icon="close"></span></button></div></div>
+  <div class="sheet-body" id="tripBody"></div>
+</aside>
+
+<div id="tip" class="tip" hidden></div>
+<div id="busy" class="busy" hidden></div>
+<div id="toast" class="toast" hidden></div>

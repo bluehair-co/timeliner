@@ -1,0 +1,572 @@
+// ---------- state ----------
+var D = null;   // all trips and stays (typed arrays)
+var M = null;   // facts about D: years, modes, countries, days
+var F = null;   // the filters, shared by every tab
+var sel = new Int32Array(0), selV = new Int32Array(0);   // trips and stays that pass, oldest first
+var tab = 'map';
+var dirty = { map: true, insights: true, timeline: true };
+var mq = window.matchMedia('(min-width: 960px)');
+function wide() { return mq.matches; }
+var coarse = window.matchMedia('(pointer: coarse)').matches;
+
+function localHour(ms, off) {
+  if (off != null && off !== NO_OFF) return new Date(ms + off * 60000).getUTCHours();
+  return new Date(ms).getHours();
+}
+
+// Fills in what older saved imports lack: times along the GPS trail and the stays.
+function upgrade(R) {
+  var n = R.day.length;
+  if (!R.pathOff) { R.pathOff = new Uint32Array(n + 1); R.pathPts = new Float32Array(0); }
+  if (!R.pathT || R.pathT.length !== R.pathPts.length / 2) {
+    var t = new Float32Array(R.pathPts.length / 2);
+    for (var i = 0; i < n; i++) {
+      var o0 = R.pathOff[i], o1 = R.pathOff[i + 1], dur = Math.max(0, (R.end[i] - R.start[i]) / 1000);
+      for (var q = o0; q < o1; q++) t[q] = o1 - o0 > 1 ? dur * (q - o0) / (o1 - o0 - 1) : 0;
+    }
+    R.pathT = t;
+  }
+  if (!R.vs) {
+    R.vs = new Float64Array(0); R.ve = new Float64Array(0); R.vday = new Int32Array(0); R.voff = new Int16Array(0);
+    R.vll = new Float32Array(0); R.vtype = new Uint8Array(0); R.vname = []; R.vsrcs = new Uint8Array(0);
+  }
+  if (!R.files) R.files = [];
+  return R;
+}
+
+function tagCountries() {
+  var n = D.day.length, nv = D.vs.length, idx = {}, cache = {};
+  D.ccList = []; D.ccCount = []; D.cs = new Uint16Array(n); D.ce = new Uint16Array(n); D.vcc = new Uint16Array(nv);
+  function code(lat, lng) {
+    var key = isFinite(lat) ? lat.toFixed(2) + ',' + lng.toFixed(2) : '?';
+    var cc = cache[key];
+    if (cc === undefined) cc = cache[key] = isFinite(lat) ? countryAt(lat, lng) : '';
+    if (idx[cc] === undefined) { idx[cc] = D.ccList.length; D.ccList.push(cc); D.ccCount.push(0); }
+    return idx[cc];
+  }
+  for (var i = 0; i < n; i++) {
+    var a = code(D.from[2 * i], D.from[2 * i + 1]), b = code(D.to[2 * i], D.to[2 * i + 1]);
+    D.cs[i] = a; D.ce[i] = b;
+    D.ccCount[a]++; if (b !== a) D.ccCount[b]++;
+  }
+  for (var v = 0; v < nv; v++) { var c = code(D.vll[2 * v], D.vll[2 * v + 1]); D.vcc[v] = c; D.ccCount[c]++; }
+}
+
+function setData(R) {
+  D = upgrade(R);
+  $('app').classList.remove('no-data');
+  var n = D.day.length, nv = D.vs.length, i, yc = {}, present = {};
+  D.year = new Int16Array(n); D.month = new Int8Array(n); D.dow = new Int8Array(n); D.hour = new Int8Array(n);
+  for (i = 0; i < n; i++) {
+    var x = dayToDate(D.day[i]);
+    D.year[i] = x.getUTCFullYear(); D.month[i] = x.getUTCMonth(); D.dow[i] = x.getUTCDay();
+    D.hour[i] = localHour(D.start[i], D.off[i]);
+    yc[D.year[i]] = 1; present[MODES[D.mode[i]]] = 1;
+  }
+  D.vyear = new Int16Array(nv); D.vmonth = new Int8Array(nv); D.vdow = new Int8Array(nv);
+  for (i = 0; i < nv; i++) {
+    var y = dayToDate(D.vday[i]);
+    D.vyear[i] = y.getUTCFullYear(); D.vmonth[i] = y.getUTCMonth(); D.vdow[i] = y.getUTCDay();
+    yc[D.vyear[i]] = 1;
+  }
+  D.order = Int32Array.from(Array.from({ length: n }, function (_, k) { return k; }).sort(function (a, b) { return D.start[a] - D.start[b]; }));
+  D.vorder = Int32Array.from(Array.from({ length: nv }, function (_, k) { return k; }).sort(function (a, b) { return D.vs[a] - D.vs[b]; }));
+  tagCountries();
+  D.places = null; D.home = undefined;
+  var minD = Infinity, maxD = -Infinity;
+  for (i = 0; i < n; i++) { if (D.day[i] < minD) minD = D.day[i]; if (D.day[i] > maxD) maxD = D.day[i]; }
+  for (i = 0; i < nv; i++) { if (D.vday[i] < minD) minD = D.vday[i]; if (D.vday[i] > maxD) maxD = D.vday[i]; }
+  if (!isFinite(minD)) minD = maxD = Math.floor(Date.now() / 864e5);
+  var anyGuess = false;
+  for (i = 0; i < n && !anyGuess; i++) if (D.est[i] & 4) anyGuess = true;
+  M = {
+    years: Object.keys(yc).map(Number).sort(function (a, b) { return a - b; }),
+    modes: MODES.filter(function (m) { return present[m]; }),
+    countries: D.ccList.map(function (_, k) { return k; }).filter(function (k) { return D.ccCount[k] > 0; })
+      .sort(function (a, b) { return D.ccCount[b] - D.ccCount[a]; }),
+    minD: minD, maxD: maxD, anyGuess: anyGuess, navDays: []
+  };
+  F = defaultFilters();
+  buildFilterUI();
+  mapReset();
+  apply();
+  renderSettings();
+}
+
+// ---------- filters ----------
+// On a phone the app opens on the last 7 days. If nothing was recorded in them (an older
+// export), it shows the last 7 days in the data instead.
+function lastWeek() {
+  var today = Math.floor((Date.now() - new Date().getTimezoneOffset() * 60000) / 864e5), end = today;
+  if (M.maxD < today - 6) end = M.maxD;
+  return [end - 6, end];
+}
+function defaultFilters() {
+  var wk = wide() ? null : lastWeek();
+  return {
+    dm: wk ? 'range' : 'all', one: M.maxD, from: wk ? wk[0] : M.minD, to: wk ? wk[1] : M.maxD,
+    years: new Set(M.years), months: new Set([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]), dows: new Set([0, 1, 2, 3, 4, 5, 6]),
+    h0: 0, h1: 24, modes: new Set(M.modes), countries: new Set(M.countries), guess: 'all'
+  };
+}
+function activeFilters() {
+  var k = 0;
+  if (F.dm !== 'all') k++;
+  if (F.years.size !== M.years.length) k++;
+  if (F.months.size !== 12) k++;
+  if (F.dows.size !== 7) k++;
+  if (F.h0 !== 0 || F.h1 !== 24) k++;
+  if (F.modes.size !== M.modes.length) k++;
+  if (F.countries.size !== M.countries.length) k++;
+  if (F.guess !== 'all') k++;
+  return k;
+}
+function hourOk(h) {
+  if (F.h0 === 0 && F.h1 === 24) return true;
+  return F.h0 < F.h1 ? h >= F.h0 && h < F.h1 : h >= F.h0 || h < F.h1;
+}
+function dayOk(d) {
+  if (F.dm === 'one') return d === F.one;
+  if (F.dm === 'range') return d >= F.from && d <= F.to;
+  return true;
+}
+function apply() {
+  var ord = D.order, out = [], nav = {}, k, i;
+  var modeOk = MODES.map(function (m) { return F.modes.has(m); });
+  var allCC = F.countries.size === M.countries.length, anyHour = F.h0 === 0 && F.h1 === 24;
+  for (k = 0; k < ord.length; k++) {
+    i = ord[k];
+    if (!modeOk[D.mode[i]] || !F.years.has(D.year[i]) || !F.months.has(D.month[i]) || !F.dows.has(D.dow[i])) continue;
+    if (F.guess === 'no' && D.est[i] & 4) continue;
+    if (F.guess === 'only' && !(D.est[i] & 4)) continue;
+    if (!anyHour && !hourOk(D.hour[i])) continue;
+    if (!allCC && !F.countries.has(D.cs[i]) && !F.countries.has(D.ce[i])) continue;
+    nav[D.day[i]] = 1;
+    if (dayOk(D.day[i])) out.push(i);
+  }
+  sel = Int32Array.from(out);
+  M.navDays = Object.keys(nav).map(Number).sort(function (a, b) { return a - b; });
+  // Stays follow the same filters, except transport and time of day.
+  var outV = [];
+  for (k = 0; k < D.vorder.length; k++) {
+    i = D.vorder[k];
+    if (!F.years.has(D.vyear[i]) || !F.months.has(D.vmonth[i]) || !F.dows.has(D.vdow[i]) || !dayOk(D.vday[i])) continue;
+    if (!allCC && !F.countries.has(D.vcc[i])) continue;
+    outV.push(i);
+  }
+  selV = Int32Array.from(outV);
+  dirty.map = dirty.insights = dirty.timeline = true;
+  syncFilterUI();
+  renderTab();
+}
+var applyTimer = 0;
+function changed() { clearTimeout(applyTimer); applyTimer = setTimeout(apply, 30); }
+
+function filterText() {
+  var t = F.dm === 'one' ? niceDate(F.one) : F.dm === 'range' ? (F.from === F.to ? niceDate(F.from) : niceDate(F.from) + ' – ' + niceDate(F.to)) : 'All time';
+  var k = activeFilters() - (F.dm !== 'all' ? 1 : 0);
+  return t + (k ? ' · ' + k + ' filter' + (k > 1 ? 's' : '') : '');
+}
+function tripsText(n) { return fmt(n) + ' trip' + (n === 1 ? '' : 's'); }
+
+function chipHtml(f, v, label, n) {
+  return '<button type="button" class="chip" data-f="' + f + '" data-v="' + v + '" aria-pressed="false">' + label + (n != null ? '<span class="n">' + fmt(n) + '</span>' : '') + '</button>';
+}
+function buildFilterUI() {
+  var mc = {}, i;
+  for (i = 0; i < D.day.length; i++) { var m = MODES[D.mode[i]]; mc[m] = (mc[m] || 0) + 1; }
+  $('years').innerHTML = M.years.map(function (y) { return chipHtml('years', y, y); }).join('');
+  $('months').innerHTML = MONTHS.map(function (m, k) { return chipHtml('months', k, m); }).join('');
+  $('dows').innerHTML = DOW_ORDER.map(function (d) { return chipHtml('dows', d, DOW[d]); }).join('');
+  var groups = GROUPS.filter(function (g) { return g.modes.some(function (m) { return mc[m]; }); });
+  $('groupChips').innerHTML = groups.length > 1 ? groups.map(function (g) {
+    return '<button type="button" class="chip" data-f="group" data-v="' + g.key + '" aria-pressed="false"><i style="width:10px;height:10px;border-radius:3px;display:block;background:' + g.color + '"></i>' + g.label + '</button>';
+  }).join('') : '';
+  $('groupChips').hidden = groups.length < 2;
+  $('modes').innerHTML = M.modes.map(function (m) {
+    return chipHtml('modes', m, '<span style="color:' + modeColor(m) + ';display:flex">' + icon(m) + '</span>' + (LABEL[m] || m), mc[m]);
+  }).join('');
+  $('countries').innerHTML = M.countries.map(function (k) {
+    var cc = D.ccList[k];
+    return chipHtml('countries', k, (flag(cc) ? flag(cc) + ' ' : '') + esc(ccName(cc)));
+  }).join('');
+  $('ccSearch').hidden = M.countries.length < 12;
+  $('guessWrap').hidden = !M.anyGuess;
+  var h0 = '', h1 = '';
+  for (i = 0; i < 24; i++) h0 += '<option value="' + i + '">' + pad2(i) + ':00</option>';
+  for (i = 1; i <= 24; i++) h1 += '<option value="' + i + '">' + pad2(i % 24) + ':00' + (i === 24 ? ' (midnight)' : '') + '</option>';
+  $('h0').innerHTML = h0; $('h1').innerHTML = h1;
+  var lo = isoDay(M.minD), hi = isoDay(M.maxD);
+  ['oneDay', 'from', 'to', 'dayPick', 'tlJump'].forEach(function (id) { $(id).min = lo; $(id).max = hi; });
+}
+function setPressed(sel_, fn) {
+  document.querySelectorAll(sel_).forEach(function (b) { b.setAttribute('aria-pressed', fn(b) ? 'true' : 'false'); });
+}
+function syncFilterUI() {
+  setPressed('#filtersSheet .chip[data-f]', function (b) {
+    var f = b.dataset.f, v = b.dataset.v;
+    if (f === 'group') {
+      var g = GROUPS.filter(function (x) { return x.key === v; })[0], have = g.modes.filter(function (m) { return M.modes.indexOf(m) >= 0; });
+      return have.length > 0 && have.every(function (m) { return F.modes.has(m); });
+    }
+    return F[f].has(f === 'modes' ? v : +v);
+  });
+  setPressed('#dayMode button', function (b) { return b.dataset.dm === F.dm; });
+  setPressed('#guessSeg button', function (b) { return b.dataset.g === F.guess; });
+  $('oneField').hidden = F.dm !== 'one';
+  $('rangeFields').hidden = F.dm !== 'range';
+  $('oneDay').value = isoDay(F.one); $('from').value = isoDay(F.from); $('to').value = isoDay(F.to);
+  $('h0').value = F.h0; $('h1').value = F.h1;
+  var k = activeFilters();
+  $('filterBadge').hidden = !k; $('filterBadge').textContent = k;
+  var txt = filterText() + ' · ' + tripsText(sel.length);
+  document.querySelectorAll('.filter-pill .filter-text').forEach(function (e) { e.textContent = txt; });
+}
+
+$('filtersSheet').addEventListener('click', function (ev) {
+  var b = ev.target.closest('button');
+  if (!b) return;
+  if (b.dataset.f) {
+    var f = b.dataset.f, v = b.dataset.v;
+    if (f === 'group') {
+      var g = GROUPS.filter(function (x) { return x.key === v; })[0], have = g.modes.filter(function (m) { return M.modes.indexOf(m) >= 0; });
+      var on = have.every(function (m) { return F.modes.has(m); });
+      have.forEach(function (m) { if (on) F.modes.delete(m); else F.modes.add(m); });
+    } else {
+      var val = f === 'modes' ? v : +v, s = F[f];
+      if (s.has(val)) s.delete(val); else s.add(val);
+    }
+  } else if (b.dataset.q) {
+    var all = b.dataset.all === '1', q = b.dataset.q;
+    F[q] = new Set(all ? { years: M.years, months: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], dows: [0, 1, 2, 3, 4, 5, 6], modes: M.modes, countries: M.countries }[q] : []);
+  } else if (b.dataset.dm) {
+    F.dm = b.dataset.dm;
+    if (F.dm === 'one' && M.navDays.length && M.navDays.indexOf(F.one) < 0) F.one = M.navDays[M.navDays.length - 1];
+  } else if (b.dataset.g) F.guess = b.dataset.g;
+  else if (b.id === 'dowWeekdays') F.dows = new Set([1, 2, 3, 4, 5]);
+  else if (b.id === 'dowWeekend') F.dows = new Set([0, 6]);
+  else if (b.id === 'hoursAll') { F.h0 = 0; F.h1 = 24; }
+  else if (b.id === 'resetFilters') F = defaultFilters();
+  else return;
+  syncFilterUI();
+  changed();
+});
+function onDate(id, key) {
+  $(id).addEventListener('change', function () {
+    var d = parseIsoDay(this.value);
+    if (d == null) return;
+    F[key] = d;
+    if (key === 'from' && F.to < d) F.to = d;
+    if (key === 'to' && F.from > d) F.from = d;
+    changed();
+  });
+}
+onDate('oneDay', 'one'); onDate('from', 'from'); onDate('to', 'to');
+$('h0').addEventListener('change', function () { F.h0 = +this.value; changed(); });
+$('h1').addEventListener('change', function () { F.h1 = +this.value; changed(); });
+$('ccSearch').addEventListener('input', function () {
+  var q = this.value.trim().toLowerCase();
+  $('countries').querySelectorAll('.chip').forEach(function (c) { c.hidden = q && c.textContent.toLowerCase().indexOf(q) < 0; });
+});
+// Show one day, from anywhere in the app.
+function showDay(d) {
+  F.dm = 'one'; F.one = d;
+  syncFilterUI();
+  apply();
+}
+
+// ---------- tabs ----------
+function setTab(t) {
+  tab = t;
+  $('mapPage').hidden = t !== 'map';
+  $('insightsPage').hidden = t !== 'insights';
+  $('timelinePage').hidden = t !== 'timeline';
+  document.querySelectorAll('.dock button').forEach(function (b) { if (b.dataset.tab === t) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
+  hideTip();
+  if (openId && openId !== 'settingsSheet' && openId !== 'filtersSheet') closeSheets();
+  renderTab();
+}
+function renderTab() {
+  if (!D) return;
+  if (tab === 'map') renderMapTab();
+  else if (tab === 'insights' && dirty.insights) { dirty.insights = false; renderInsights(); }
+  else if (tab === 'timeline') { if (dirty.timeline) { dirty.timeline = false; buildTimeline(); } else tlLayout(); }
+}
+document.querySelector('.dock').addEventListener('click', function (ev) { var b = ev.target.closest('button[data-tab]'); if (b) setTab(b.dataset.tab); });
+
+// ---------- sheets ----------
+var openId = null;
+function openSheet(id) {
+  if (openId && openId !== id) closeSheets(true);
+  openId = id;
+  $(id).classList.add('open');
+  // On a wide screen the side panels sit next to the map, so it stays usable.
+  $('scrim').hidden = wide() && id !== 'settingsSheet';
+  $('filtersBtn').setAttribute('aria-expanded', id === 'filtersSheet' ? 'true' : 'false');
+  $('layersBtn').setAttribute('aria-expanded', id === 'layersSheet' ? 'true' : 'false');
+}
+function closeSheets(quiet) {
+  if (!openId) return;
+  var was = openId;
+  $(was).classList.remove('open');
+  openId = null;
+  $('scrim').hidden = true;
+  $('filtersBtn').setAttribute('aria-expanded', 'false');
+  $('layersBtn').setAttribute('aria-expanded', 'false');
+  if (was === 'tripSheet') highlight(null);
+}
+function toggleSheet(id) { if (openId === id) closeSheets(); else openSheet(id); }
+$('filtersBtn').addEventListener('click', function () { toggleSheet('filtersSheet'); });
+$('layersBtn').addEventListener('click', function () { toggleSheet('layersSheet'); });
+document.addEventListener('click', function (ev) {
+  if (ev.target.closest('[data-open-filters]')) openSheet('filtersSheet');
+  else if (ev.target.closest('[data-close]')) closeSheets();
+});
+$('scrim').addEventListener('click', function () { closeSheets(); });
+$('openSettings').addEventListener('click', function () { renderSettings(); openSheet('settingsSheet'); });
+document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape') { closeSheets(); hideTip(); } });
+
+// ---------- tooltips (mouse only; taps open sheets instead) ----------
+var tipEl = $('tip');
+function showTip(e, html) {
+  tipEl.innerHTML = html; tipEl.hidden = false;
+  var w = tipEl.offsetWidth, h = tipEl.offsetHeight, x = e.clientX + 14, y = e.clientY + 14;
+  if (x + w > innerWidth - 8) x = e.clientX - w - 14;
+  if (y + h > innerHeight - 8) y = e.clientY - h - 14;
+  tipEl.style.left = Math.max(8, x) + 'px'; tipEl.style.top = Math.max(8, y) + 'px';
+}
+function hideTip() { tipEl.hidden = true; }
+
+// ---------- places ----------
+// Each trip end and stay is snapped to a place: the nearest airport for flights, otherwise
+// the first place seen within 300 m, so GPS jitter around home or work doesn't split it.
+function tagPlaces() {
+  var n = D.day.length, nv = D.vs.length, grid = {}, byAp = {};
+  D.places = []; D.pa = new Int32Array(n); D.pb = new Int32Array(n); D.pv = new Int32Array(nv);
+  function place(lat, lng, flight, name) {
+    if (!isFinite(lat)) return -1;
+    if (flight) {
+      var ap = nearestAirport(lat, lng);
+      if (ap) {
+        if (byAp[ap.code] == null) { byAp[ap.code] = D.places.length; D.places.push({ lat: ap.lat, lng: ap.lng, ap: ap }); }
+        return byAp[ap.code];
+      }
+    }
+    var gx = Math.floor(lng * 200), gy = Math.floor(lat * 200);
+    for (var dy = -1; dy <= 1; dy++) for (var dx = -1; dx <= 1; dx++) {
+      var cell = grid[(gx + dx) + ',' + (gy + dy)];
+      if (cell) for (var k = 0; k < cell.length; k++) {
+        var q = D.places[cell[k]];
+        if (km([lat, lng], [q.lat, q.lng]) <= 0.3) { if (name && !q.name) q.name = name; return cell[k]; }
+      }
+    }
+    var id = D.places.length;
+    D.places.push({ lat: lat, lng: lng, ap: null, name: name || '' });
+    (grid[gx + ',' + gy] || (grid[gx + ',' + gy] = [])).push(id);
+    return id;
+  }
+  // Stays first, so their names label the places trips start and end at.
+  for (var v = 0; v < nv; v++) D.pv[v] = place(D.vll[2 * v], D.vll[2 * v + 1], false, D.vname[v]);
+  for (var i = 0; i < n; i++) {
+    var fl = MODES[D.mode[i]] === 'FLYING';
+    D.pa[i] = place(D.from[2 * i], D.from[2 * i + 1], fl);
+    D.pb[i] = place(D.to[2 * i], D.to[2 * i + 1], fl);
+  }
+}
+function needPlaces() { if (!D.places) tagPlaces(); }
+// A short name for a place: the airport, the name Timeline gave it, or the nearest town.
+function placeLabel(id) {
+  if (id < 0) return 'Unknown place';
+  var q = D.places[id];
+  if (q.label) return q.label;
+  if (q.ap) q.label = q.ap.city + ' (' + q.ap.code + ')';
+  else if (q.name) q.label = q.name;
+  else {
+    var c = nearestCity(q.lat, q.lng);
+    q.label = c ? (c.d > 8 ? 'Near ' : '') + c.name : ccName(countryAt(q.lat, q.lng));
+  }
+  if (D.home != null && id === D.home && !q.ap) q.label = 'Home';
+  return q.label;
+}
+function tripRoute(i) {
+  needPlaces();
+  var a = placeLabel(D.pa[i]), b = placeLabel(D.pb[i]);
+  return D.pa[i] === D.pb[i] || a === b ? 'Around ' + a : a + ' → ' + b;
+}
+// Home: the place Timeline tagged as home, else where nights are spent, else the most common trip end.
+function findHome() {
+  if (D.home !== undefined) return D.home;
+  needPlaces();
+  var score = {}, best = -1, bs = 0, v, i, how = '';
+  for (v = 0; v < D.vs.length; v++) if (D.vtype[v] === 1) score[D.pv[v]] = (score[D.pv[v]] || 0) + 1;
+  if (Object.keys(score).length) how = 'the place Timeline tagged as home';
+  else {
+    for (v = 0; v < D.vs.length; v++) {
+      // A stay that covers 3 am local time counts as a night there.
+      var off = D.voff[v] !== NO_OFF ? D.voff[v] * 60000 : -new Date(D.vs[v]).getTimezoneOffset() * 60000;
+      var s = D.vs[v] + off, e = D.ve[v] + off, night = Math.ceil((s - 3 * 36e5) / 864e5) * 864e5 + 3 * 36e5;
+      if (night <= e) score[D.pv[v]] = (score[D.pv[v]] || 0) + Math.min(30, Math.floor((e - night) / 864e5) + 1);
+    }
+    if (Object.keys(score).length) how = 'where most nights were spent';
+    else {
+      for (i = 0; i < D.day.length; i++) if (D.pb[i] >= 0 && MODES[D.mode[i]] !== 'FLYING') score[D.pb[i]] = (score[D.pb[i]] || 0) + 1;
+      how = 'where most trips end';
+    }
+  }
+  for (var k in score) if (score[k] > bs) { bs = score[k]; best = +k; }
+  D.home = best;
+  D.homeHow = how;
+  if (best >= 0) D.places[best].label = null;
+  return best;
+}
+
+// ---------- import ----------
+function setStatus(text, isErr) {
+  ['welcomeStatus', 'importStatus'].forEach(function (id) { $(id).textContent = text || ''; $(id).className = 'status' + (isErr ? ' err' : ''); });
+  if (text && D) toast(text);
+}
+// Combine exports. When several cover the same day, the newest kind of export wins for that day.
+function merge(base, parts) {
+  var all = (base ? [upgrade(base)] : []).concat(parts.map(upgrade)), total = 0;
+  function src(p, i) { return p.srcs ? p.srcs[i] : p.src; }
+  function vsrc(p, i) { return p.vsrcs && p.vsrcs.length ? p.vsrcs[i] : p.src; }
+  var best = {};
+  all.forEach(function (p) {
+    var i, s, d;
+    for (i = 0; i < p.day.length; i++) { s = src(p, i); d = p.day[i]; if (best[d] === undefined || s < best[d]) best[d] = s; }
+    for (i = 0; i < p.vs.length; i++) { s = vsrc(p, i); d = p.vday[i]; if (best[d] === undefined || s < best[d]) best[d] = s; }
+    total += p.day.length;
+  });
+  var idx = [], vidx = [];
+  all.forEach(function (p, pi) {
+    var i;
+    for (i = 0; i < p.day.length; i++) if (src(p, i) === best[p.day[i]]) idx.push([pi, i]);
+    for (i = 0; i < p.vs.length; i++) if (vsrc(p, i) === best[p.vday[i]]) vidx.push([pi, i]);
+  });
+  idx.sort(function (a, b) { return all[a[0]].start[a[1]] - all[b[0]].start[b[1]]; });
+  vidx.sort(function (a, b) { return all[a[0]].vs[a[1]] - all[b[0]].vs[b[1]]; });
+  var out = idx.filter(function (x, j) {
+    if (!j) return true;
+    var y = idx[j - 1], p = all[x[0]], q = all[y[0]];
+    return !(p.start[x[1]] === q.start[y[1]] && p.mode[x[1]] === q.mode[y[1]]);
+  });
+  var vout = vidx.filter(function (x, j) { return !j || all[x[0]].vs[x[1]] !== all[vidx[j - 1][0]].vs[vidx[j - 1][1]]; });
+  var n = out.length, nv = vout.length;
+  var R = { start: new Float64Array(n), end: new Float64Array(n), day: new Int32Array(n), mode: new Uint8Array(n),
+    km: new Float32Array(n), est: new Uint8Array(n), off: new Int16Array(n), orig: new Float32Array(n), from: new Float32Array(2 * n), to: new Float32Array(2 * n), srcs: new Uint8Array(n),
+    vs: new Float64Array(nv), ve: new Float64Array(nv), vday: new Int32Array(nv), voff: new Int16Array(nv), vll: new Float32Array(2 * nv), vtype: new Uint8Array(nv), vname: [], vsrcs: new Uint8Array(nv),
+    files: (base ? base.files || [] : []).concat(parts.map(function (p) { return { name: p.name, kind: p.kind }; })) };
+  var npts = 0;
+  out.forEach(function (x) { var p = all[x[0]]; npts += p.pathOff[x[1] + 1] - p.pathOff[x[1]]; });
+  R.pathPts = new Float32Array(2 * npts); R.pathT = new Float32Array(npts); R.pathOff = new Uint32Array(n + 1);
+  var w = 0;
+  out.forEach(function (x, j) {
+    var p = all[x[0]], i = x[1];
+    R.start[j] = p.start[i]; R.end[j] = p.end[i]; R.day[j] = p.day[i]; R.mode[j] = p.mode[i]; R.km[j] = p.km[i]; R.est[j] = p.est[i];
+    R.off[j] = p.off ? p.off[i] : NO_OFF; R.orig[j] = p.orig ? p.orig[i] : 0;
+    R.from[2 * j] = p.from[2 * i]; R.from[2 * j + 1] = p.from[2 * i + 1]; R.to[2 * j] = p.to[2 * i]; R.to[2 * j + 1] = p.to[2 * i + 1];
+    R.srcs[j] = src(p, i);
+    for (var q = p.pathOff[i]; q < p.pathOff[i + 1]; q++, w++) { R.pathPts[2 * w] = p.pathPts[2 * q]; R.pathPts[2 * w + 1] = p.pathPts[2 * q + 1]; R.pathT[w] = p.pathT[q]; }
+    R.pathOff[j + 1] = w;
+  });
+  vout.forEach(function (x, j) {
+    var p = all[x[0]], i = x[1];
+    R.vs[j] = p.vs[i]; R.ve[j] = p.ve[i]; R.vday[j] = p.vday[i]; R.voff[j] = p.voff[i];
+    R.vll[2 * j] = p.vll[2 * i]; R.vll[2 * j + 1] = p.vll[2 * i + 1]; R.vtype[j] = p.vtype[i]; R.vname.push(p.vname[i] || ''); R.vsrcs[j] = vsrc(p, i);
+  });
+  R.dropped = total - n;
+  return R;
+}
+function runParser(files) {
+  return new Promise(function (resolve) {
+    var results = [], errors = [], skipped = 0, worker = null;
+    try { worker = new Worker(URL.createObjectURL(new Blob([$('parser').textContent], { type: 'text/javascript' }))); } catch (e) { worker = null; }
+    function done() { resolve({ results: results, errors: errors, skipped: skipped }); }
+    if (worker) {
+      worker.onmessage = function (e) {
+        var m = e.data;
+        if (m.type === 'progress') busy(m.text);
+        else if (m.type === 'file') results.push(m.result);
+        else if (m.type === 'error') { if (m.skipped) skipped++; else errors.push(m.name + ': ' + m.text); }
+        else if (m.type === 'done') { worker.terminate(); done(); }
+      };
+      worker.onerror = function () { worker.terminate(); mainThread(); };
+      worker.postMessage({ files: files });
+    } else mainThread();
+    function mainThread() {
+      results = []; errors = []; skipped = 0;
+      (function next(i) {
+        if (i >= files.length) { done(); return; }
+        busy('Reading ' + files[i].name + '…');
+        parseFile(files[i], function () {}).then(function (r) { r.name = files[i].name; results.push(r); })
+          .catch(function (err) { if (err && err.message === NOT_TIMELINE) skipped++; else errors.push(files[i].name + ': ' + (err && err.message || err)); })
+          .then(function () { next(i + 1); });
+      })(0);
+    }
+  });
+}
+function importFiles(list) {
+  var files = Array.prototype.filter.call(list, function (f) { return /\.json$/i.test(f.name); });
+  if (!files.length) { setStatus('No .json files found there.', true); return; }
+  setStatus('');
+  busy('Reading…');
+  runParser(files).then(function (r) {
+    if (!r.results.length) { busy(''); setStatus(r.errors.length ? r.errors.join(' · ') : NOT_TIMELINE, true); return; }
+    busy('Preparing your map…');
+    setTimeout(function () {
+      var next = merge(D, r.results);
+      saveData(next);
+      setData(next);
+      busy('');
+      var nv = next.vs.length;
+      var msg = 'Loaded ' + tripsText(next.day.length) + (nv ? ' and ' + fmt(nv) + ' stays' : '') + ' from ' + r.results.length + ' file' + (r.results.length > 1 ? 's' : '') + '.';
+      if (r.skipped) msg += ' Skipped ' + r.skipped + ' file' + (r.skipped > 1 ? 's' : '') + ' without Timeline data.';
+      if (next.dropped) msg += ' Left out ' + fmt(next.dropped) + ' trips already covered by another export.';
+      if (r.errors.length) msg += ' Problems: ' + r.errors.join(' · ');
+      setStatus(msg, r.errors.length > 0);
+    }, 30);
+  });
+}
+$('fileIn').addEventListener('change', function () { closeSheets(); importFiles(this.files); this.value = ''; });
+$('dirIn').addEventListener('change', function () { importFiles(this.files); this.value = ''; });
+document.body.addEventListener('dragover', function (e) { e.preventDefault(); });
+document.body.addEventListener('drop', function (e) { e.preventDefault(); if (e.dataTransfer.files.length) importFiles(e.dataTransfer.files); });
+
+// ---------- remember the last import on this device ----------
+// Kept in this browser's IndexedDB so the app opens with it next time. Nothing leaves the device.
+function withStore(name, mode, fn) {
+  return new Promise(function (resolve, reject) {
+    var rq;
+    try { rq = indexedDB.open(name, 1); } catch (e) { reject(e); return; }
+    rq.onupgradeneeded = function () { rq.result.createObjectStore('kv'); };
+    rq.onerror = function () { reject(rq.error); };
+    rq.onsuccess = function () {
+      var db = rq.result, tx = db.transaction('kv', mode), req = fn(tx.objectStore('kv'));
+      tx.oncomplete = function () { db.close(); resolve(req.result); };
+      tx.onerror = tx.onabort = function () { db.close(); reject(tx.error); };
+    };
+  });
+}
+function saveData(R) {
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) { /* ignore */ }
+  var keep = {};
+  ['start', 'end', 'day', 'mode', 'km', 'est', 'off', 'orig', 'from', 'to', 'srcs', 'pathPts', 'pathT', 'pathOff',
+    'vs', 've', 'vday', 'voff', 'vll', 'vtype', 'vname', 'vsrcs', 'files'].forEach(function (k) { keep[k] = R[k]; });
+  return withStore('timeliner', 'readwrite', function (s) { return s.put(keep, 'trips'); }).catch(function () { /* this visit still works */ });
+}
+function loadSaved() {
+  var get = function (s) { return s.get('trips'); };
+  return withStore('timeliner', 'readonly', get).catch(function () { return null; }).then(function (R) {
+    if (R && R.day) return R;
+    // Trips saved by Transport Footprint 1.0 on this device.
+    return withStore('footprint', 'readonly', get).catch(function () { return null; }).then(function (old) {
+      if (old && old.day) { saveData(upgrade(old)); return old; }
+      return null;
+    });
+  });
+}
+$('forgetBtn').addEventListener('click', function () {
+  var del = function (s) { return s.delete('trips'); };
+  Promise.all([withStore('timeliner', 'readwrite', del).catch(function () {}), withStore('footprint', 'readwrite', del).catch(function () {})])
+    .then(function () { location.reload(); });
+});

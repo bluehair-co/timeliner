@@ -7,7 +7,8 @@ function renderSettings() {
   $('forgetBtn').hidden = false;
   var names = (D.files || []).map(function (f) { return f.name; }).filter(Boolean);
   $('dataSummary').textContent = tripsText(D.day.length) + (D.vs.length ? ' and ' + fmt(D.vs.length) + ' stays' : '') + ', ' + niceDate(M.minD) + ' – ' + niceDate(M.maxD) +
-    (names.length ? ', from ' + names.slice(0, 3).join(', ') + (names.length > 3 ? ' and ' + (names.length - 3) + ' more' : '') : '') + '. Saved on this device only.';
+    (names.length ? ', from ' + names.slice(0, 3).join(', ') + (names.length > 3 ? ' and ' + (names.length - 3) + ' more' : '') : '') + '. Saved on this device only.' +
+    (D.stravaStats ? ' ' + stravaText(D.stravaStats) : '');
   var h = findHome();
   $('homeNote').textContent = h >= 0 ? 'Home is ' + describeHome(h) + ', judging by ' + D.homeHow + '. Timeliner labels it Home in lists.' : 'Timeliner couldn\'t tell where home is from this data.';
 }

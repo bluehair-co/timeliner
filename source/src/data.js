@@ -97,7 +97,7 @@ function setData(R) {
 // On a phone the app opens on the last 7 days. If nothing was recorded in them (an older
 // export), it shows the last 7 days in the data instead.
 function lastWeek() {
-  var today = Math.floor((Date.now() - new Date().getTimezoneOffset() * 60000) / 864e5), end = today;
+  var today = todayDay(), end = today;
   if (M.maxD < today - 6) end = M.maxD;
   return [end - 6, end];
 }
@@ -262,12 +262,15 @@ function onDate(id, key) {
   });
 }
 onDate('oneDay', 'one'); onDate('from', 'from'); onDate('to', 'to');
+$('oneToday').addEventListener('click', function () { showDay(todayDay()); });
 $('h0').addEventListener('change', function () { F.h0 = +this.value; changed(); });
 $('h1').addEventListener('change', function () { F.h1 = +this.value; changed(); });
 $('ccSearch').addEventListener('input', function () {
   var q = this.value.trim().toLowerCase();
   $('countries').querySelectorAll('.chip').forEach(function (c) { c.hidden = q && c.textContent.toLowerCase().indexOf(q) < 0; });
 });
+// Today as a local day number.
+function todayDay() { return Math.floor((Date.now() - new Date().getTimezoneOffset() * 60000) / 864e5); }
 // Show one day, from anywhere in the app.
 function showDay(d) {
   F.dm = 'one'; F.one = d;

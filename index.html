@@ -355,6 +355,10 @@ svg text { font-family: var(--font-body); font-size: 11px; fill: var(--muted); }
 .bar-top { display: flex; align-items: center; gap: 2px; }
 .bar-top > .daynav, .bar-top > .range-label { flex: 1; min-width: 0; }
 .scrub-toggle[aria-pressed="true"] { color: var(--accent); background: var(--chip-on-bg); }
+.today-btn { flex: none; border: 1px solid var(--line); background: var(--panel); color: var(--fg); border-radius: 999px; padding: 6px 12px; min-height: 36px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.today-btn:hover { background: var(--chip); }
+.field-head { display: flex; align-items: baseline; justify-content: space-between; }
+.link-btn { border: 0; background: none; padding: 2px 0; font: inherit; font-size: 12px; font-weight: 600; color: var(--accent); cursor: pointer; }
 </style>
 </head>
 <body>
@@ -403,6 +407,7 @@ svg text { font-family: var(--font-body); font-size: 11px; fill: var(--muted); }
           <button type="button" class="icon-btn" id="dayNext" aria-label="Next day with trips"><span data-icon="right"></span></button>
         </div>
         <button type="button" class="range-label summary-pill" id="rangeLabel" hidden style="padding:6px 8px 2px"><b id="rangeMain"></b><small id="rangeSub"></small></button>
+          <button type="button" class="today-btn" id="todayBtn" hidden>Today</button>
           <button type="button" class="icon-btn scrub-toggle" id="scrubToggle" aria-label="Show time slider" aria-pressed="false" title="Time slider"><span data-icon="clock"></span></button>
         </div>
         <div class="scrub">
@@ -515,7 +520,7 @@ svg text { font-family: var(--font-body); font-size: 11px; fill: var(--muted); }
       <div class="seg full" role="group" aria-label="Which days" id="dayMode">
         <button type="button" data-dm="all" aria-pressed="true">All</button><button type="button" data-dm="one" aria-pressed="false">Single day</button><button type="button" data-dm="range" aria-pressed="false">Date range</button>
       </div>
-      <div class="field" id="oneField" hidden><label for="oneDay">Day</label><input type="date" id="oneDay"></div>
+      <div class="field" id="oneField" hidden><div class="field-head"><label for="oneDay">Day</label><button type="button" class="link-btn" id="oneToday">Today</button></div><input type="date" id="oneDay"></div>
       <div class="grid2" id="rangeFields" hidden>
         <div class="field"><label for="from">From</label><input type="date" id="from"></div>
         <div class="field"><label for="to">To</label><input type="date" id="to"></div>
@@ -1541,7 +1546,7 @@ function setData(R) {
 // On a phone the app opens on the last 7 days. If nothing was recorded in them (an older
 // export), it shows the last 7 days in the data instead.
 function lastWeek() {
-  var today = Math.floor((Date.now() - new Date().getTimezoneOffset() * 60000) / 864e5), end = today;
+  var today = todayDay(), end = today;
   if (M.maxD < today - 6) end = M.maxD;
   return [end - 6, end];
 }
@@ -1706,12 +1711,15 @@ function onDate(id, key) {
   });
 }
 onDate('oneDay', 'one'); onDate('from', 'from'); onDate('to', 'to');
+$('oneToday').addEventListener('click', function () { showDay(todayDay()); });
 $('h0').addEventListener('change', function () { F.h0 = +this.value; changed(); });
 $('h1').addEventListener('change', function () { F.h1 = +this.value; changed(); });
 $('ccSearch').addEventListener('input', function () {
   var q = this.value.trim().toLowerCase();
   $('countries').querySelectorAll('.chip').forEach(function (c) { c.hidden = q && c.textContent.toLowerCase().indexOf(q) < 0; });
 });
+// Today as a local day number.
+function todayDay() { return Math.floor((Date.now() - new Date().getTimezoneOffset() * 60000) / 864e5); }
 // Show one day, from anywhere in the app.
 function showDay(d) {
   F.dm = 'one'; F.one = d;
@@ -2353,6 +2361,7 @@ function updateTopbar() {
   $('rangeLabel').hidden = one;
   document.querySelector('#timeBar .scrub').hidden = !n || !PREFS.scrub;
   $('scrubToggle').hidden = !n;
+  $('todayBtn').hidden = one && F.one === todayDay();
   $('scrubToggle').setAttribute('aria-pressed', PREFS.scrub ? 'true' : 'false');
   $('scrubToggle').setAttribute('aria-label', PREFS.scrub ? 'Hide time slider' : 'Show time slider');
   var sub = n ? tripsText(n) + ' · ' + dist(total) : 'No trips this day';
@@ -2387,6 +2396,7 @@ function stepDay(dir) {
   if (d != null) showDay(d);
 }
 $('dayPrev').addEventListener('click', function () { stepDay(-1); });
+$('todayBtn').addEventListener('click', function () { showDay(todayDay()); });
 $('dayNext').addEventListener('click', function () { stepDay(1); });
 $('dayPick').addEventListener('change', function () { var d = parseIsoDay(this.value); if (d != null) showDay(d); });
 $('rangeLabel').addEventListener('click', function () { openSheet('filtersSheet'); });

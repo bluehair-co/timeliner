@@ -335,3 +335,7 @@ svg text { font-family: var(--font-body); font-size: 11px; fill: var(--muted); }
 .bar-top { display: flex; align-items: center; gap: 2px; }
 .bar-top > .daynav, .bar-top > .range-label { flex: 1; min-width: 0; }
 .scrub-toggle[aria-pressed="true"] { color: var(--accent); background: var(--chip-on-bg); }
+.today-btn { flex: none; border: 1px solid var(--line); background: var(--panel); color: var(--fg); border-radius: 999px; padding: 6px 12px; min-height: 36px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.today-btn:hover { background: var(--chip); }
+.field-head { display: flex; align-items: baseline; justify-content: space-between; }
+.link-btn { border: 0; background: none; padding: 2px 0; font: inherit; font-size: 12px; font-weight: 600; color: var(--accent); cursor: pointer; }

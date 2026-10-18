@@ -336,6 +336,7 @@ function updateTopbar() {
   $('rangeLabel').hidden = one;
   document.querySelector('#timeBar .scrub').hidden = !n || !PREFS.scrub;
   $('scrubToggle').hidden = !n;
+  $('todayBtn').hidden = one && F.one === todayDay();
   $('scrubToggle').setAttribute('aria-pressed', PREFS.scrub ? 'true' : 'false');
   $('scrubToggle').setAttribute('aria-label', PREFS.scrub ? 'Hide time slider' : 'Show time slider');
   var sub = n ? tripsText(n) + ' · ' + dist(total) : 'No trips this day';
@@ -370,6 +371,7 @@ function stepDay(dir) {
   if (d != null) showDay(d);
 }
 $('dayPrev').addEventListener('click', function () { stepDay(-1); });
+$('todayBtn').addEventListener('click', function () { showDay(todayDay()); });
 $('dayNext').addEventListener('click', function () { stepDay(1); });
 $('dayPick').addEventListener('change', function () { var d = parseIsoDay(this.value); if (d != null) showDay(d); });
 $('rangeLabel').addEventListener('click', function () { openSheet('filtersSheet'); });

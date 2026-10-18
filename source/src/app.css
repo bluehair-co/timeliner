@@ -178,6 +178,9 @@ details.help b { color: var(--fg); font-weight: 500; }
 .mode-badge svg { width: 22px; height: 22px; }
 .mode-badge.sm { width: 34px; height: 34px; border-radius: 10px; }
 .mode-badge.sm svg { width: 18px; height: 18px; }
+.mode-badge { position: relative; }
+.mode-badge .strava-mark { position: absolute; top: -5px; right: -5px; width: 17px; height: 17px; border-radius: 50%; background: #fc4c02; box-shadow: 0 0 0 2px var(--panel); display: flex; align-items: center; justify-content: center; }
+.mode-badge .strava-mark svg { width: 11px; height: 11px; margin-top: 1px; }
 .trip-head h3 { margin: 0; font-size: 16px; font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--fg); }
 .trip-head p { margin: 0; font-size: 13px; color: var(--muted); }
 .kv { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 20px; margin: 0; }

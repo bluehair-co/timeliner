@@ -282,7 +282,7 @@ function tripRows(i) {
 }
 function tripHead(i, sub) {
   var m = modeOf(i), r = tripRows(i);
-  return '<div class="trip-head">' + badge(m) + '<div><h3>' + (LABEL[m] || m) + (D.est[i] & 4 ? ' <span class="guess">Guessed</span>' : '') + '</h3><p>' + (sub || longDate(D.day[i]) + ' · ' + r.t0.time) + '</p></div></div>';
+  return '<div class="trip-head">' + badge(m, false, D.est[i] & 16) + '<div><h3>' + (LABEL[m] || m) + (D.est[i] & 4 ? ' <span class="guess">Guessed</span>' : '') + '</h3><p>' + (sub || longDate(D.day[i]) + ' · ' + r.t0.time) + '</p></div></div>';
 }
 function openTrip(i, fromList) {
   var r = tripRows(i);

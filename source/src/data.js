@@ -108,7 +108,7 @@ function defaultFilters() {
   return {
     dm: wk ? 'range' : 'all', one: M.maxD, from: wk ? wk[0] : M.minD, to: wk ? wk[1] : M.maxD,
     years: new Set(M.years), months: new Set([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]), dows: new Set([0, 1, 2, 3, 4, 5, 6]),
-    h0: 0, h1: 24, modes: new Set(M.modes), countries: new Set(M.countries), guess: 'all'
+    h0: 0, h1: 24, modes: new Set(M.modes), countries: new Set(M.countries), guess: 'all', src: 'all'
   };
 }
 function activeFilters() {
@@ -121,6 +121,7 @@ function activeFilters() {
   if (F.modes.size !== M.modes.length) k++;
   if (F.countries.size !== M.countries.length) k++;
   if (F.guess !== 'all') k++;
+  if (F.src !== 'all') k++;
   return k;
 }
 function hourOk(h) {
@@ -141,6 +142,7 @@ function apply() {
     if (!modeOk[D.mode[i]] || !F.years.has(D.year[i]) || !F.months.has(D.month[i]) || !F.dows.has(D.dow[i])) continue;
     if (F.guess === 'no' && D.est[i] & 4) continue;
     if (F.guess === 'only' && !(D.est[i] & 4)) continue;
+    if (F.src !== 'all' && !(D.est[i] & STRAVA) === (F.src === 'strava')) continue;
     if (!anyHour && !hourOk(D.hour[i])) continue;
     if (!allCC && !F.countries.has(D.cs[i]) && !F.countries.has(D.ce[i])) continue;
     nav[D.day[i]] = 1;
@@ -149,8 +151,9 @@ function apply() {
   sel = Int32Array.from(out);
   M.navDays = Object.keys(nav).map(Number).sort(function (a, b) { return a - b; });
   // Stays follow the same filters, except transport and time of day.
+  // Stays come from Timeline, so Strava-only leaves them out.
   var outV = [];
-  for (k = 0; k < D.vorder.length; k++) {
+  for (k = 0; F.src !== 'strava' && k < D.vorder.length; k++) {
     i = D.vorder[k];
     if (!F.years.has(D.vyear[i]) || !F.months.has(D.vmonth[i]) || !F.dows.has(D.vdow[i]) || !dayOk(D.vday[i])) continue;
     if (!allCC && !F.countries.has(D.vcc[i])) continue;
@@ -194,6 +197,7 @@ function buildFilterUI() {
   }).join('');
   $('ccSearch').hidden = M.countries.length < 12;
   $('guessWrap').hidden = !M.anyGuess;
+  $('srcWrap').hidden = !D.stravaStats;
   var h0 = '', h1 = '';
   for (i = 0; i < 24; i++) h0 += '<option value="' + i + '">' + pad2(i) + ':00</option>';
   for (i = 1; i <= 24; i++) h1 += '<option value="' + i + '">' + pad2(i % 24) + ':00' + (i === 24 ? ' (midnight)' : '') + '</option>';
@@ -215,6 +219,7 @@ function syncFilterUI() {
   });
   setPressed('#dayMode button', function (b) { return b.dataset.dm === F.dm; });
   setPressed('#guessSeg button', function (b) { return b.dataset.g === F.guess; });
+  setPressed('#srcSeg button', function (b) { return b.dataset.src === F.src; });
   $('oneField').hidden = F.dm !== 'one';
   $('rangeFields').hidden = F.dm !== 'range';
   $('oneDay').value = isoDay(F.one); $('from').value = isoDay(F.from); $('to').value = isoDay(F.to);
@@ -245,6 +250,7 @@ $('filtersSheet').addEventListener('click', function (ev) {
     F.dm = b.dataset.dm;
     if (F.dm === 'one' && M.navDays.length && M.navDays.indexOf(F.one) < 0) F.one = M.navDays[M.navDays.length - 1];
   } else if (b.dataset.g) F.guess = b.dataset.g;
+  else if (b.dataset.src) F.src = b.dataset.src;
   else if (b.id === 'dowWeekdays') F.dows = new Set([1, 2, 3, 4, 5]);
   else if (b.id === 'dowWeekend') F.dows = new Set([0, 6]);
   else if (b.id === 'hoursAll') { F.h0 = 0; F.h1 = 24; }

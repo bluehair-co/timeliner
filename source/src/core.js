@@ -61,7 +61,7 @@ function fillIcons(root) {
 
 // ---------- transport modes ----------
 var LABEL = { WALKING: 'Walking', RUNNING: 'Running', CYCLING: 'Cycling', CAR: 'Car', MOTORCYCLE: 'Motorbike', BUS: 'Bus',
-  TRAIN: 'Train', VEHICLE: 'Vehicle', TAXI: 'Taxi', OTHER: 'Other', TRAM: 'Tram', SUBWAY: 'Metro', FERRY: 'Ferry', BOAT: 'Boat', FLYING: 'Flight', SKIING: 'Skiing',
+  TRAIN: 'Train', VEHICLE: 'Vehicle', TAXI: 'Taxi', OTHER: 'Other', TRAM: 'Tram', SUBWAY: 'Metro', FERRY: 'Ferry', BOAT: 'Boat', FLYING: 'Flight', SKIING: 'Snow sports',
   CABLE: 'Cable car', UNKNOWN: 'Unclassified' };
 // Colour groups, in the fixed order of the categorical palette.
 var GROUPS = [

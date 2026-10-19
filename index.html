@@ -2701,7 +2701,8 @@ $('tripBody').addEventListener('click', function (ev) {
 $('tripBack').addEventListener('click', function () { if (listBack) openList(listBack); });
 
 // ---------- top bar: day navigator or time slider ----------
-var scrubV = 1000, T0 = 0, T1 = 0, playing = false, playRaf = 0, SPEEDS = [1, 2, 4, 8, 0.5];
+var scrubV = 1000, T0 = 0, T1 = 0, playing = false, playRaf = 0, SPEEDS = [1, 2, 4, 8, 16, 32, 0.25, 0.5];
+function speedText() { return ({ 0.25: '¼', 0.5: '½' }[PREFS.speed] || PREFS.speed) + '×'; }
 function dayLabel(d) { var x = dayToDate(d); return DOW[x.getUTCDay()] + ' ' + x.getUTCDate() + ' ' + MONTHS[x.getUTCMonth()] + ' ' + x.getUTCFullYear(); }
 function updateTopbar() {
   var n = sel.length, total = 0, i;
@@ -2740,7 +2741,7 @@ function updateTopbar() {
       if (T1 <= T0) T1 = T0 + 1;
     }
   }
-  $('speedBtn').textContent = (PREFS.speed === 0.5 ? '½' : PREFS.speed) + '×';
+  $('speedBtn').textContent = speedText();
   scrubLabel();
 }
 function stepDay(dir) {
@@ -2827,7 +2828,7 @@ function stopPlay() {
 // Playback runs on travel time: the time between trips is squeezed to a short pause
 // (a third of an average trip at most), so the dot moves steadily instead of
 // jumping from trip to trip. Knots map real time to playback time; the whole
-// range plays in 30 seconds at 1×.
+// range plays in 2 minutes at 1×.
 function playWarp() {
   var iv = [], k, n = sel.length;
   for (k = 0; k < n; k++) {
@@ -2860,7 +2861,7 @@ function play() {
   var W = playWarp(), u = warpMap(W.real, W.virt, scrubTime()), last = performance.now();
   (function frame(now) {
     if (!playing) return;
-    u += (now - last) / 30000 * W.len * PREFS.speed;
+    u += (now - last) / 120000 * W.len * PREFS.speed;
     last = now;
     if (u >= W.len) { scrubTo(1000); stopPlay(); return; }
     scrubTo((warpMap(W.virt, W.real, u) - T0) / (T1 - T0) * 1000);
@@ -2877,7 +2878,7 @@ $('playBtn').addEventListener('click', function () { if (playing) stopPlay(); el
 $('speedBtn').addEventListener('click', function () {
   PREFS.speed = SPEEDS[(SPEEDS.indexOf(PREFS.speed) + 1) % SPEEDS.length] || 1;
   savePrefs();
-  this.textContent = (PREFS.speed === 0.5 ? '½' : PREFS.speed) + '×';
+  this.textContent = speedText();
 });
 
 // ---------- legend ----------

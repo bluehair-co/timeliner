@@ -236,6 +236,7 @@ svg text { font-family: var(--font-body); font-size: 11px; fill: var(--muted); }
 #timeChart.scroll { display: flex; }
 #timeChart.scroll .time-scroll { flex: 1; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: thin; }
 #timeChart.scroll svg { display: block; }
+.time-units { display: flex; justify-content: center; margin-top: 10px; }
 .rhythm { display: grid; grid-template-columns: 34px repeat(24, minmax(0, 1fr)); gap: 2px; font-size: 10px; color: var(--muted); }
 .rhythm .c { aspect-ratio: 1; border-radius: 3px; min-height: 8px; }
 .rhythm .h { text-align: center; }

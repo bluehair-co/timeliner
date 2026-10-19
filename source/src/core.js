@@ -86,7 +86,7 @@ function badge(m, small, strava) { return '<span class="mode-badge' + (small ? '
 var PREFS_KEY = 'timeliner.prefs';
 var PREFS = {
   unit: 'km', theme: 'system', proj: 'merc', paths: true, heat: false, cc: false,
-  heatSrc: 'moves', heatSize: 14, heatGain: 50, splitM: 'km', timeM: 'km', speed: 1,
+  heatSrc: 'moves', heatSize: 14, heatGain: 50, splitM: 'km', timeM: 'km', timeU: 'year', speed: 1,
   // The time slider starts hidden on phones.
   scrub: !window.matchMedia('(pointer: coarse)').matches && window.matchMedia('(min-width: 960px)').matches
 };

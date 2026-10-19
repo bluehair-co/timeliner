@@ -101,16 +101,20 @@ function niceMax(v) {
 }
 var timeData = null;
 // Slot width in px for the units that scroll; years always fit the card.
-var TIME_UNITS = { year: 0, month: 34, week: 14 };
+var TIME_UNITS = { year: 0, month: 34, week: 14, day: 26 };
 function weekStart(k) { return k * 7 - 3; }
 function renderTime() {
   var mt = TIME[PREFS.timeM] || TIME.km;
   setPressed('#timeSeg button', function (b) { return b.dataset.m === PREFS.timeM; });
   $('timeTitle').textContent = mt.title;
-  setPressed('#timeUnitSeg button', function (b) { return b.dataset.u === PREFS.timeU; });
+  // Days are offered for ranges up to two months; a longer range shows weeks instead.
+  var short = sel.length > 0 && D.day[sel[sel.length - 1]] - D.day[sel[0]] <= 62;
+  var unit = PREFS.timeU in TIME_UNITS ? PREFS.timeU : 'year';
+  if (unit === 'day' && !short) unit = 'week';
+  $('timeUnitSeg').querySelector('[data-u="day"]').hidden = !short;
+  setPressed('#timeUnitSeg button', function (b) { return b.dataset.u === unit; });
   // Weeks start on Monday; day 0 (1 Jan 1970) was a Thursday.
-  var unit = TIME_UNITS[PREFS.timeU] ? PREFS.timeU : 'year';
-  function key(i) { return unit === 'week' ? Math.floor((D.day[i] + 3) / 7) : unit === 'month' ? D.year[i] * 12 + D.month[i] : D.year[i]; }
+  function key(i) { return unit === 'day' ? D.day[i] : unit === 'week' ? Math.floor((D.day[i] + 3) / 7) : unit === 'month' ? D.year[i] * 12 + D.month[i] : D.year[i]; }
   var buckets = {}, present = {};
   for (var j = 0; j < sel.length; j++) {
     var i = sel[j], g = groupOf(modeOf(i)).key, k = key(i), b = buckets[k] || (buckets[k] = {});
@@ -124,6 +128,7 @@ function renderTime() {
   drawTime();
 }
 function bucketName(k, unit) {
+  if (unit === 'day') return longDate(k);
   if (unit === 'week') { var a = dayToDate(weekStart(k)), z = dayToDate(weekStart(k) + 6); return 'Week of ' + a.getUTCDate() + ' ' + MONTHS[a.getUTCMonth()] + (a.getUTCFullYear() !== z.getUTCFullYear() ? ' ' + a.getUTCFullYear() : '') + ' – ' + z.getUTCDate() + ' ' + MONTHS[z.getUTCMonth()] + ' ' + z.getUTCFullYear(); }
   if (unit === 'month') return MONTHS_LONG[k % 12] + ' ' + Math.floor(k / 12);
   return String(k);
@@ -160,6 +165,7 @@ function drawTime() {
   keys.forEach(function (k, idx) {
     var cx = X0 + slot * idx + slot / 2, b = T.buckets[k] || {}, text = null, ws, wd;
     if (unit === 'year') { if (idx % every === 0) text = k; }
+    else if (unit === 'day') { if (idx % every === 0) { ws = dayToDate(k); text = ws.getUTCDate() + (ws.getUTCDate() <= every || idx === 0 ? ' ' + MONTHS[ws.getUTCMonth()] : ''); } }
     else if (unit === 'month') text = k % 12 === 0 ? Math.floor(k / 12) : MONTHS[k % 12];
     else {
       ws = dayToDate(weekStart(k)); wd = dayToDate(weekStart(k) - 7);

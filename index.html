@@ -252,6 +252,10 @@ details.help b { color: var(--fg); font-weight: 500; }
 .legend i { width: 10px; height: 10px; border-radius: 3px; display: block; }
 svg text { font-family: var(--font-body); font-size: 11px; fill: var(--muted); }
 .chart { position: relative; }
+/* Months and weeks scroll sideways; the y axis stays put. */
+#timeChart.scroll { display: flex; }
+#timeChart.scroll .time-scroll { flex: 1; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: thin; }
+#timeChart.scroll svg { display: block; }
 .rhythm { display: grid; grid-template-columns: 34px repeat(24, minmax(0, 1fr)); gap: 2px; font-size: 10px; color: var(--muted); }
 .rhythm .c { aspect-ratio: 1; border-radius: 3px; min-height: 8px; }
 .rhythm .h { text-align: center; }
@@ -453,6 +457,7 @@ svg text { font-family: var(--font-body); font-size: 11px; fill: var(--muted); }
         <section class="card wide">
           <div class="card-head"><h2 id="timeTitle">Over time</h2>
             <div class="seg" role="group" aria-label="Measure" id="timeSeg"><button type="button" data-m="km" aria-pressed="true">Distance</button><button type="button" data-m="h" aria-pressed="false">Time</button><button type="button" data-m="n" aria-pressed="false">Trips</button><button type="button" data-m="co2" aria-pressed="false">CO₂</button></div>
+            <div class="seg" role="group" aria-label="Group by" id="timeUnitSeg"><button type="button" data-u="year" aria-pressed="true">Years</button><button type="button" data-u="month" aria-pressed="false">Months</button><button type="button" data-u="week" aria-pressed="false">Weeks</button></div>
             <div class="legend" id="timeLegend" style="width:100%"></div>
           </div>
           <div class="chart" id="timeChart"></div>
@@ -1480,7 +1485,7 @@ function badge(m, small, strava) { return '<span class="mode-badge' + (small ? '
 var PREFS_KEY = 'timeliner.prefs';
 var PREFS = {
   unit: 'km', theme: 'system', proj: 'merc', paths: true, heat: false, cc: false,
-  heatSrc: 'moves', heatSize: 14, heatGain: 50, splitM: 'km', timeM: 'km', speed: 1,
+  heatSrc: 'moves', heatSize: 14, heatGain: 50, splitM: 'km', timeM: 'km', timeU: 'year', speed: 1,
   // The time slider starts hidden on phones.
   scrub: !window.matchMedia('(pointer: coarse)').matches && window.matchMedia('(min-width: 960px)').matches
 };
@@ -3521,13 +3526,17 @@ function niceMax(v) {
   return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * p;
 }
 var timeData = null;
+// Slot width in px for the units that scroll; years always fit the card.
+var TIME_UNITS = { year: 0, month: 34, week: 14 };
+function weekStart(k) { return k * 7 - 3; }
 function renderTime() {
-  var mt = TIME[PREFS.timeM] || TIME.km, d0 = D.day[sel[0]], d1 = D.day[sel[sel.length - 1]];
+  var mt = TIME[PREFS.timeM] || TIME.km;
   setPressed('#timeSeg button', function (b) { return b.dataset.m === PREFS.timeM; });
   $('timeTitle').textContent = mt.title;
-  // Days for up to two months, months for up to six years, otherwise years.
-  var unit = d1 - d0 <= 62 ? 'day' : d1 - d0 <= 6 * 366 ? 'month' : 'year';
-  function key(i) { return unit === 'day' ? D.day[i] : unit === 'month' ? D.year[i] * 12 + D.month[i] : D.year[i]; }
+  setPressed('#timeUnitSeg button', function (b) { return b.dataset.u === PREFS.timeU; });
+  // Weeks start on Monday; day 0 (1 Jan 1970) was a Thursday.
+  var unit = TIME_UNITS[PREFS.timeU] ? PREFS.timeU : 'year';
+  function key(i) { return unit === 'week' ? Math.floor((D.day[i] + 3) / 7) : unit === 'month' ? D.year[i] * 12 + D.month[i] : D.year[i]; }
   var buckets = {}, present = {};
   for (var j = 0; j < sel.length; j++) {
     var i = sel[j], g = groupOf(modeOf(i)).key, k = key(i), b = buckets[k] || (buckets[k] = {});
@@ -3541,36 +3550,50 @@ function renderTime() {
   drawTime();
 }
 function bucketName(k, unit) {
-  if (unit === 'day') return longDate(k);
+  if (unit === 'week') { var a = dayToDate(weekStart(k)), z = dayToDate(weekStart(k) + 6); return 'Week of ' + a.getUTCDate() + ' ' + MONTHS[a.getUTCMonth()] + (a.getUTCFullYear() !== z.getUTCFullYear() ? ' ' + a.getUTCFullYear() : '') + ' – ' + z.getUTCDate() + ' ' + MONTHS[z.getUTCMonth()] + ' ' + z.getUTCFullYear(); }
   if (unit === 'month') return MONTHS_LONG[k % 12] + ' ' + Math.floor(k / 12);
   return String(k);
 }
 function drawTime() {
   var T = timeData, host = $('timeChart');
   if (!T) return;
+  var keys = T.keys, G = T.G, mt = T.mt, unit = T.unit, old = host.querySelector('.time-scroll');
+  // Keep the scroll position when only the measure or the size changes; otherwise show the latest.
+  var keep = old && host.dataset.view === unit + ':' + keys[0] + ':' + keys.length ? old.scrollLeft : -1;
   host.textContent = '';
-  var keys = T.keys, G = T.G, mt = T.mt, unit = T.unit;
+  var scroll = TIME_UNITS[unit] > 0;
+  host.classList.toggle('scroll', scroll);
+  host.dataset.view = unit + ':' + keys[0] + ':' + keys.length;
   var W = Math.max(260, host.clientWidth), H = 220, R = 4, Tp = 8, B = 24, max = 0;
   keys.forEach(function (k) { var b = T.buckets[k]; if (b) { var s = 0; G.forEach(function (g) { s += b[g.key] || 0; }); max = Math.max(max, s); } });
   var top = niceMax(max), nt = /^2(0*)$/.test(String(top)) ? 4 : 5, widest = 0, t;
   for (t = 0; t <= nt; t++) widest = Math.max(widest, mt.tick(top * t / nt).length);
-  var Lm = Math.max(30, Math.ceil(widest * 6.6) + 10), pw = W - Lm - R, ph = H - Tp - B, slot = pw / keys.length;
+  var Lm = Math.max(30, Math.ceil(widest * 6.6) + 10), ph = H - Tp - B;
+  // Scrolling units get a fixed slot width (wider if they would not fill the card) and a separate y axis.
+  var pw = scroll ? Math.max(W - Lm - R, keys.length * TIME_UNITS[unit]) : W - Lm - R, slot = pw / keys.length;
+  var X0 = scroll ? 0 : Lm, SW = scroll ? pw + R : W;
   var bw = Math.max(1.5, Math.min(22, slot * 0.72));
-  var svg = svgEl('svg', { width: W, height: H, viewBox: '0 0 ' + W + ' ' + H, role: 'img', 'aria-label': mt.title + ' per ' + unit + ', stacked by transport group' });
+  var label = mt.title + ' per ' + unit + ', stacked by transport group';
+  var svg = svgEl('svg', { width: SW, height: H, viewBox: '0 0 ' + SW + ' ' + H, role: 'img', 'aria-label': label });
+  var axis = scroll ? svgEl('svg', { width: Lm, height: H, viewBox: '0 0 ' + Lm + ' ' + H, 'aria-hidden': 'true' }) : svg;
   for (t = 0; t <= nt; t++) {
     var v = top * t / nt, y = Tp + ph - ph * t / nt;
-    svg.appendChild(svgEl('line', { x1: Lm, x2: W - R, y1: y, y2: y, stroke: 'var(--grid)', 'stroke-width': 1 }));
-    var tx = svgEl('text', { x: Lm - 6, y: y + 4, 'text-anchor': 'end' }); tx.textContent = mt.tick(v); svg.appendChild(tx);
+    svg.appendChild(svgEl('line', { x1: X0, x2: SW - R, y1: y, y2: y, stroke: 'var(--grid)', 'stroke-width': 1 }));
+    var tx = svgEl('text', { x: Lm - 6, y: y + 4, 'text-anchor': 'end' }); tx.textContent = mt.tick(v); axis.appendChild(tx);
   }
-  // x labels: as many as fit; months show the year in January.
+  // x labels: years each fit; months show the year in January; weeks are labelled at the first week of each month.
   var every = Math.max(1, Math.ceil(44 / slot));
-  if (unit === 'month') every = slot >= 30 ? 1 : slot * 3 >= 30 ? 3 : slot * 6 >= 30 ? 6 : 12;
   keys.forEach(function (k, idx) {
-    var cx = Lm + slot * idx + slot / 2, b = T.buckets[k] || {};
-    var show = unit === 'month' ? (k % 12) % every === 0 : idx % every === 0;
-    if (show) {
-      var lb = svgEl('text', { x: cx, y: H - 6, 'text-anchor': 'middle' });
-      lb.textContent = unit === 'year' ? k : unit === 'month' ? (k % 12 === 0 ? Math.floor(k / 12) : MONTHS[k % 12]) : (function () { var x = dayToDate(k); return x.getUTCDate() + (x.getUTCDate() === 1 || idx === 0 ? ' ' + MONTHS[x.getUTCMonth()] : ''); })();
+    var cx = X0 + slot * idx + slot / 2, b = T.buckets[k] || {}, text = null, ws, wd;
+    if (unit === 'year') { if (idx % every === 0) text = k; }
+    else if (unit === 'month') text = k % 12 === 0 ? Math.floor(k / 12) : MONTHS[k % 12];
+    else {
+      ws = dayToDate(weekStart(k)); wd = dayToDate(weekStart(k) - 7);
+      if (idx === 0 || ws.getUTCMonth() !== wd.getUTCMonth()) text = ws.getUTCMonth() === 0 || idx === 0 ? ws.getUTCFullYear() : MONTHS[ws.getUTCMonth()];
+    }
+    if (text !== null) {
+      var lb = svgEl('text', { x: unit === 'week' ? X0 + slot * idx : cx, y: H - 6, 'text-anchor': unit === 'week' ? 'start' : 'middle' });
+      lb.textContent = text;
       svg.appendChild(lb);
     }
     var y0 = Tp + ph, segs = G.filter(function (g) { return b[g.key] > 0; });
@@ -3583,10 +3606,17 @@ function drawTime() {
       svg.appendChild(svgEl('path', { d: dPath, fill: g.color }));
       y0 -= hgt;
     });
-    var hit = svgEl('rect', { x: Lm + slot * idx, y: Tp, width: slot, height: ph, fill: 'transparent', 'data-k': k });
+    var hit = svgEl('rect', { x: X0 + slot * idx, y: Tp, width: slot, height: ph, fill: 'transparent', 'data-k': k });
     svg.insertBefore(hit, svg.firstChild);
   });
-  host.appendChild(svg);
+  if (!scroll) { host.appendChild(svg); return; }
+  var sc = document.createElement('div');
+  sc.className = 'time-scroll';
+  sc.appendChild(svg);
+  sc.addEventListener('scroll', hideTip, { passive: true });
+  host.appendChild(axis);
+  host.appendChild(sc);
+  sc.scrollLeft = keep >= 0 ? keep : sc.scrollWidth;
 }
 function timeTip(ev) {
   var r = ev.target.closest('rect[data-k]');
@@ -3600,6 +3630,7 @@ $('timeChart').addEventListener('mousemove', timeTip);
 $('timeChart').addEventListener('mouseleave', function () { hideTip(); $('timeChart').querySelectorAll('rect[data-k]').forEach(function (x) { x.setAttribute('fill', 'transparent'); }); });
 $('timeChart').addEventListener('click', timeTip);
 $('timeSeg').addEventListener('click', function (ev) { var b = ev.target.closest('button[data-m]'); if (b) { PREFS.timeM = b.dataset.m; savePrefs(); renderTime(); } });
+$('timeUnitSeg').addEventListener('click', function (ev) { var b = ev.target.closest('button[data-u]'); if (b) { PREFS.timeU = b.dataset.u; savePrefs(); renderTime(); } });
 $('insightsPage').addEventListener('scroll', hideTip, { passive: true });
 var rsT = 0;
 window.addEventListener('resize', function () { clearTimeout(rsT); rsT = setTimeout(function () { if (tab === 'insights') drawTime(); }, 120); });

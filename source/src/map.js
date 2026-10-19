@@ -153,8 +153,9 @@ function layerToggles() {
     if (x[1] && !map.hasLayer(x[0])) map.addLayer(x[0]);
     if (!x[1] && map.hasLayer(x[0])) map.removeLayer(x[0]);
   });
-  if (PREFS.cc && ccLayer._ver !== selVer()) buildCC();
+  if (PREFS.cc && ccLayer._ver !== ccVer()) buildCC();
 }
+function ccVer() { return selVer() + '|' + ccReach().key; }
 function selVer() { return sel.length + ':' + (sel[0] || 0) + ':' + (sel[sel.length - 1] || 0) + ':' + selV.length; }
 function fitAll() {
   if (PREFS.proj !== 'merc') { if (P) P.fitted = false; return; }
@@ -436,6 +437,7 @@ function scrubTo(v) {
       if (cp.x < sz.x * 0.15 || cp.x > sz.x * 0.85 || cp.y < sz.y * 0.2 || cp.y > sz.y * 0.75) map.panTo(P_pos, { animate: true, duration: 0.6 });
     }
   }
+  if (map && PREFS.cc && ccLayer._ver !== ccVer()) buildCC();
   if (PREFS.proj !== 'merc' && P && P.proj) paintProj(playing);
   scrubLabel();
 }
@@ -515,16 +517,25 @@ function legend() {
 }
 
 // ---------- countries visited ----------
+// While the time slider is back in time, only what was reached by then counts:
+// the trips started (their end country once they've arrived) and the stays begun.
+function ccReach() {
+  if (scrubV >= 1000) return { nb: sel.length, nv: selV.length, t: Infinity, key: 'all' };
+  var t = scrubTime(), lo = 0, hi = selV.length;
+  while (lo < hi) { var mid = (lo + hi) >> 1; if (D.vs[selV[mid]] <= t) lo = mid + 1; else hi = mid; }
+  var nb = visibleB, done = nb && D.end[sel[nb - 1]] <= t;
+  return { nb: nb, nv: lo, t: t, key: nb + ':' + lo + ':' + (done ? 1 : 0) };
+}
 function visitedCountries() {
-  var by = {};
+  var by = {}, r = ccReach();
   function add(k, d) { var c = by[k] || (by[k] = {}); c[d] = 1; }
-  for (var j = 0; j < sel.length; j++) { var i = sel[j]; add(D.cs[i], D.day[i]); add(D.ce[i], D.day[i]); }
-  for (var v = 0; v < selV.length; v++) add(D.vcc[selV[v]], D.vday[selV[v]]);
+  for (var j = 0; j < r.nb; j++) { var i = sel[j]; add(D.cs[i], D.day[i]); if (D.end[i] <= r.t) add(D.ce[i], D.day[i]); }
+  for (var v = 0; v < r.nv; v++) add(D.vcc[selV[v]], D.vday[selV[v]]);
   return Object.keys(by).map(function (k) { return { cc: D.ccList[k], days: Object.keys(by[k]).length }; }).filter(function (c) { return c.cc; });
 }
 function buildCC() {
   ccLayer.clearLayers();
-  ccLayer._ver = selVer();
+  ccLayer._ver = ccVer();
   if (!CB) decodeCountries();
   var list = visitedCountries(), maxD = list.reduce(function (m, c) { return Math.max(m, c.days); }, 1), color = cssVar('--accent');
   list.forEach(function (c) {

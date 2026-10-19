@@ -2824,18 +2824,46 @@ function stopPlay() {
   $('playBtn').innerHTML = icon('play'); $('playBtn').setAttribute('aria-label', 'Play');
   scrubLabel();
 }
-// The whole range plays in 30 seconds at 1×.
+// Playback runs on travel time: the time between trips is squeezed to a short pause
+// (a third of an average trip at most), so the dot moves steadily instead of
+// jumping from trip to trip. Knots map real time to playback time; the whole
+// range plays in 30 seconds at 1×.
+function playWarp() {
+  var iv = [], k, n = sel.length;
+  for (k = 0; k < n; k++) {
+    var s0 = Math.max(T0, D.start[sel[k]]), e0 = Math.min(T1, D.end[sel[k]]);
+    if (e0 <= s0) continue;
+    if (iv.length && s0 <= iv[iv.length - 1][1]) iv[iv.length - 1][1] = Math.max(iv[iv.length - 1][1], e0);
+    else iv.push([s0, e0]);
+  }
+  var moving = 0;
+  iv.forEach(function (x) { moving += x[1] - x[0]; });
+  var cap = iv.length ? Math.max(1, moving / iv.length / 3) : T1 - T0;
+  var real = [T0], virt = [0], last = T0;
+  function knot(t, travel) { if (t <= last) return; virt.push(virt[virt.length - 1] + (travel ? t - last : Math.min(t - last, cap))); real.push(t); last = t; }
+  iv.forEach(function (x) { knot(x[0], false); knot(x[1], true); });
+  knot(T1, false);
+  return { real: real, virt: virt, len: virt[virt.length - 1] || 1 };
+}
+function warpMap(from, to, x) {
+  var lo = 0, hi = from.length - 1;
+  if (x <= from[0]) return to[0];
+  if (x >= from[hi]) return to[hi];
+  while (hi - lo > 1) { var mid = (lo + hi) >> 1; if (from[mid] <= x) lo = mid; else hi = mid; }
+  var f = from[hi] > from[lo] ? (x - from[lo]) / (from[hi] - from[lo]) : 0;
+  return to[lo] + f * (to[hi] - to[lo]);
+}
 function play() {
   if (scrubV >= 1000) scrubTo(0);
   playing = true;
   $('playBtn').innerHTML = icon('pause'); $('playBtn').setAttribute('aria-label', 'Pause');
-  var last = performance.now();
+  var W = playWarp(), u = warpMap(W.real, W.virt, scrubTime()), last = performance.now();
   (function frame(now) {
     if (!playing) return;
-    var v = scrubV + (now - last) / 30000 * 1000 * PREFS.speed;
+    u += (now - last) / 30000 * W.len * PREFS.speed;
     last = now;
-    if (v >= 1000) { scrubTo(1000); stopPlay(); return; }
-    scrubTo(v);
+    if (u >= W.len) { scrubTo(1000); stopPlay(); return; }
+    scrubTo((warpMap(W.virt, W.real, u) - T0) / (T1 - T0) * 1000);
     playRaf = requestAnimationFrame(frame);
   })(last);
 }

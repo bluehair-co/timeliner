@@ -101,7 +101,7 @@ function niceMax(v) {
 }
 var timeData = null;
 // Slot width in px for the units that scroll; years always fit the card.
-var TIME_UNITS = { year: 0, month: 34, week: 14, day: 26 };
+var TIME_UNITS = { year: 0, month: 14, week: 14, day: 26 };
 function weekStart(k) { return k * 7 - 3; }
 function renderTime() {
   var mt = TIME[PREFS.timeM] || TIME.km;
@@ -166,7 +166,7 @@ function drawTime() {
     var cx = X0 + slot * idx + slot / 2, b = T.buckets[k] || {}, text = null, ws, wd;
     if (unit === 'year') { if (idx % every === 0) text = k; }
     else if (unit === 'day') { if (idx % every === 0) { ws = dayToDate(k); text = ws.getUTCDate() + (ws.getUTCDate() <= every || idx === 0 ? ' ' + MONTHS[ws.getUTCMonth()] : ''); } }
-    else if (unit === 'month') text = k % 12 === 0 ? Math.floor(k / 12) : MONTHS[k % 12];
+    else if (unit === 'month') { if (k % 12 % (slot >= 30 ? 1 : slot * 3 >= 30 ? 3 : 6) === 0) text = k % 12 === 0 ? Math.floor(k / 12) : MONTHS[k % 12]; }
     else {
       ws = dayToDate(weekStart(k)); wd = dayToDate(weekStart(k) - 7);
       if (idx === 0 || ws.getUTCMonth() !== wd.getUTCMonth()) text = ws.getUTCMonth() === 0 || idx === 0 ? ws.getUTCFullYear() : MONTHS[ws.getUTCMonth()];

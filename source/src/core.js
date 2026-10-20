@@ -210,6 +210,8 @@ function decodeCountries() {
 }
 function countryAt(lat, lng) {
   if (!isFinite(lat)) return '';
+  // EuroAirport Basel-Mulhouse stands on French soil but serves Basel through its Swiss sector: count it as Switzerland.
+  if (lat > 47.575 && lat < 47.615 && lng > 7.505 && lng < 7.545) return 'CH';
   if (!CB) decodeCountries();
   var cell = CB.grid[Math.floor(lng / 5) + ',' + Math.floor(lat / 5)] || [], inside = {};
   // Even-odd test over all of a country's rings, so holes (like Lesotho inside South Africa) work.

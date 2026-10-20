@@ -218,6 +218,9 @@ details.help b { color: var(--fg); font-weight: 500; }
 .guess { display: inline-block; font-size: 10px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: #8a5a00; background: #fff1cc; border-radius: 4px; padding: 1px 5px; margin-left: 6px; vertical-align: 1px; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .guess { color: #ffd27a; background: #3d2e0a; } }
 :root[data-theme="dark"] .guess { color: #ffd27a; background: #3d2e0a; }
+.guess.sim { color: #1f4f8a; background: #dde9fb; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .guess.sim { color: #a9cbff; background: #14284a; } }
+:root[data-theme="dark"] .guess.sim { color: #a9cbff; background: #14284a; }
 
 /* Map tooltip and hover (mouse only) */
 .leaflet-container { font-family: var(--font-body); background: var(--grid); }
@@ -1500,6 +1503,9 @@ function modeColor(m) { return groupOf(m).color; }
 function modeOf(i) { return MODES[D.mode[i]]; }
 // strava adds Strava's mark in the top right corner.
 var STRAVA_MARK = '<span class="strava-mark" title="From Strava"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.6 1.5 11 10H8.4L6.6 6.6 4.8 10H2.2zM10.3 10.6l1.2 2.4 1.2-2.4h1.9l-3.1 6-3.1-6z" fill="#fff"/></svg></span>';
+// Trips from a simulated file (see merge) get a "Simulated" tag wherever they are shown.
+function isSim(i) { return !!(D.srcs && D.srcs[i] === SRC.sim); }
+function simTag(i) { return isSim(i) ? '<span class="guess sim">Simulated</span>' : ''; }
 function badge(m, small, strava) { return '<span class="mode-badge' + (small ? ' sm' : '') + '" style="background:' + modeColor(m) + '">' + icon(m) + (strava ? STRAVA_MARK : '') + '</span>'; }
 
 // ---------- preferences ----------
@@ -2709,7 +2715,7 @@ function tripRows(i) {
   var m = modeOf(i), k = D.km[i], ms = D.end[i] - D.start[i], off = D.off[i], e = D.est[i];
   var line = haversine([D.from[2 * i], D.from[2 * i + 1]], [D.to[2 * i], D.to[2 * i + 1]]), nGps = D.pathOff[i + 1] - D.pathOff[i];
   var t0 = localTime(D.start[i], zoneAt(D.from[2 * i], D.from[2 * i + 1]), off), t1 = localTime(D.end[i], zoneAt(D.to[2 * i], D.to[2 * i + 1]), off);
-  var src = e & 16 ? 'from Strava' : e & 8 ? 'corrected' : (e & 3) === 1 ? 'along the GPS trail' : (e & 3) === 2 ? 'straight line' : 'from Timeline';
+  var src = e & 16 ? 'from Strava' : isSim(i) ? 'simulated' : e & 8 ? 'corrected' : (e & 3) === 1 ? 'along the GPS trail' : (e & 3) === 2 ? 'straight line' : 'from Timeline';
   var rows = [
     ['From', placeOf(i, false)], ['To', placeOf(i, true)],
     ['Start', t0.time + ' <span class="fine">' + t0.label + '</span>'],
@@ -2723,15 +2729,16 @@ function tripRows(i) {
   ];
   var notes = [];
   if (e & 16) notes.push(D.repl[i] ? 'Recorded on Strava. It replaces ' + (D.repl[i] === 1 ? 'the less precise trip' : D.repl[i] + ' less precise trips') + ' Timeline recorded at the same time.' : 'Recorded on Strava. Timeline has no trip at this time.');
+  if (isSim(i)) notes.push('Simulated from a file you loaded, not recorded by Timeline. It replaces any exported trip at the same time.');
   if (e & 4) notes.push('Timeline gave this trip no transport type, or one that didn\'t fit its speed, so the type is guessed from the average speed.');
   if (D.orig[i] > 0) notes.push('Timeline recorded ' + dist(D.orig[i]) + ' for this trip, which is impossible at its speed, so Timeliner uses the ' + ((e & 3) === 1 ? 'GPS trail' : 'straight line') + ' instead.');
   if (m === 'FLYING') notes.push('The cities are the nearest airports to where the flight started and ended.');
-  else if (nGps < 3 && !(e & 16)) notes.push('Timeline kept few or no GPS points for this trip, so its line joins the start and end.');
+  else if (nGps < 3 && !(e & 16) && !isSim(i)) notes.push('Timeline kept few or no GPS points for this trip, so its line joins the start and end.');
   return { t0: t0, rows: rows, notes: notes };
 }
 function tripHead(i, sub) {
   var m = modeOf(i), r = tripRows(i);
-  return '<div class="trip-head">' + badge(m, false, D.est[i] & 16) + '<div><h3>' + (LABEL[m] || m) + (D.est[i] & 4 ? ' <span class="guess">Guessed</span>' : '') + '</h3><p>' + (sub || longDate(D.day[i]) + ' · ' + r.t0.time) + '</p></div></div>';
+  return '<div class="trip-head">' + badge(m, false, D.est[i] & 16) + '<div><h3>' + (LABEL[m] || m) + (D.est[i] & 4 ? ' <span class="guess">Guessed</span>' : '') + simTag(i) + '</h3><p>' + (sub || longDate(D.day[i]) + ' · ' + r.t0.time) + '</p></div></div>';
 }
 function openTrip(i, fromList) {
   var r = tripRows(i);
@@ -2758,7 +2765,7 @@ function openList(list) {
 }
 function tripRowHtml(i, withDate) {
   var m = modeOf(i);
-  return '<button type="button" class="hit-row" data-i="' + i + '">' + badge(m, true) + '<span class="t"><b>' + esc(tripRoute(i)) + '</b><small>' + (LABEL[m] || m) + ' · ' + (withDate ? niceDate(D.day[i]) + ', ' : '') + clock(D.start[i], D.off[i]) + '</small></span>' +
+  return '<button type="button" class="hit-row" data-i="' + i + '">' + badge(m, true) + '<span class="t"><b>' + esc(tripRoute(i)) + '</b><small>' + (LABEL[m] || m) + simTag(i) + ' · ' + (withDate ? niceDate(D.day[i]) + ', ' : '') + clock(D.start[i], D.off[i]) + '</small></span>' +
     '<span class="r num">' + dist(D.km[i]) + '<small>' + (D.end[i] > D.start[i] ? duration(D.end[i] - D.start[i]) : '') + '</small></span></button>';
 }
 $('tripBody').addEventListener('click', function (ev) {
@@ -3887,7 +3894,7 @@ function tlRender(force) {
     } else if (TL.type[k] === 1) {
       var i = TL.ref[k], m = modeOf(i), ms = D.end[i] - D.start[i];
       out += '<div class="tl-item" ' + top + '><button type="button" class="tl-trip" data-i="' + i + '" aria-pressed="' + (i === TL.sel) + '">' + badge(m, false, D.est[i] & 16) +
-        '<span class="t"><b>' + esc(tripRoute(i)) + '</b><small>' + (LABEL[m] || m) + ' · ' + clock(D.start[i], D.off[i]) + (ms > 0 ? '–' + clock(D.end[i], D.off[i]) : '') + (D.est[i] & 16 ? ' · Strava' : D.est[i] & 4 ? ' · type guessed' : '') + '</small></span>' +
+        '<span class="t"><b>' + esc(tripRoute(i)) + '</b><small>' + (LABEL[m] || m) + simTag(i) + ' · ' + clock(D.start[i], D.off[i]) + (ms > 0 ? '–' + clock(D.end[i], D.off[i]) : '') + (D.est[i] & 16 ? ' · Strava' : D.est[i] & 4 ? ' · type guessed' : '') + '</small></span>' +
         '<span class="r">' + dist(D.km[i]) + '<small>' + (ms > 0 ? duration(ms) : '') + '</small></span></button></div>';
     } else {
       out += '<div class="tl-item tl-end" ' + top + '>' + (sel.length ? 'That\'s all ' + tripsText(sel.length) + ' for ' + esc(filterText()) + '.' : 'No trips match your filters.') + '</div>';
@@ -3931,7 +3938,7 @@ function tlSelect(i, scroll) {
     }
   }
   var m = modeOf(i), ms = D.end[i] - D.start[i];
-  $('tlMapInfo').innerHTML = badge(m, true) + '<span class="t" style="flex:1"><b>' + esc(tripRoute(i)) + '</b><small>' + (LABEL[m] || m) + ' · ' + niceDate(D.day[i]) + ', ' + clock(D.start[i], D.off[i]) +
+  $('tlMapInfo').innerHTML = badge(m, true) + '<span class="t" style="flex:1"><b>' + esc(tripRoute(i)) + '</b><small>' + (LABEL[m] || m) + simTag(i) + ' · ' + niceDate(D.day[i]) + ', ' + clock(D.start[i], D.off[i]) +
     ' · ' + dist(D.km[i]) + (ms > 0 ? ' · ' + duration(ms) : '') + '</small></span><button type="button" class="btn quiet" data-details="' + i + '" style="padding:6px 10px">Details</button>';
   var k = -1;
   for (var q = 0; q < TL.ref.length; q++) if (TL.type[q] === 1 && TL.ref[q] === i) { k = q; break; }

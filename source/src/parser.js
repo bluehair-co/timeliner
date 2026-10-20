@@ -214,6 +214,20 @@ function split(list) {
   return { pts: list.map(function (x) { return x[1]; }), ts: list.map(function (x) { return x[0]; }) };
 }
 
+// Known bad points in the owner's Timeline, fixed by hand. Each is a single stray
+// location fix: points within 50 km of `bad` inside [from, to] are ignored, and a
+// trip that starts or ends there takes `fix` (and the straight-line distance) instead.
+var BAD_POINTS = [
+  // 12 Apr 2026 Toronto → Amsterdam: one fix in Playa del Carmen, Mexico, mid-flight.
+  { from: '2026-04-12T20:00:00Z', to: '2026-04-13T05:00:00Z', bad: [20.6733, -87.024], fix: [43.6777, -79.6248] }
+];
+function badPoint(ms, ll) {
+  for (var i = 0; ll && i < BAD_POINTS.length; i++) {
+    var b = BAD_POINTS[i];
+    if (ms >= Date.parse(b.from) && ms <= Date.parse(b.to) && km(ll, b.bad) < 50) return b;
+  }
+  return null;
+}
 function parseAndroid(o, c) {
   var segs = o.semanticSegments || [], i, s, paths = [];
   // Path points are stored in separate segments; index them by time so trips without a distance can use them.
@@ -221,7 +235,7 @@ function parseAndroid(o, c) {
     s = segs[i];
     if (s.timelinePath) for (var j = 0; j < s.timelinePath.length; j++) {
       var p = s.timelinePath[j], t = parseTime(p.time) || parseTime(s.startTime), ll = parseLL(p.point);
-      if (t && ll) paths.push([t.ms, ll]);
+      if (t && ll && !badPoint(t.ms, ll)) paths.push([t.ms, ll]);
     }
   }
   paths.sort(function (x, y) { return x[0] - y[0]; });
@@ -234,7 +248,10 @@ function parseAndroid(o, c) {
     }
     if (!s.activity) continue;
     var a = s.activity, p = split(st && et ? between(paths, st.ms, et.ms) : null);
-    addActivity(c, a.topCandidate && a.topCandidate.type, st, et, a.distanceMeters, parseLL(a.start), parseLL(a.end), p.pts, p.ts);
+    var aLL = parseLL(a.start), bLL = parseLL(a.end), meters = a.distanceMeters, bad;
+    if (st && (bad = badPoint(st.ms, aLL))) { aLL = bad.fix; meters = km(aLL, bLL) * 1000; }
+    if (et && (bad = badPoint(et.ms, bLL))) { bLL = bad.fix; meters = km(aLL, bLL) * 1000; }
+    addActivity(c, a.topCandidate && a.topCandidate.type, st, et, meters, aLL, bLL, p.pts, p.ts);
   }
 }
 function between(L, a, b) {

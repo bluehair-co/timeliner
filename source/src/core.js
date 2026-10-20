@@ -80,6 +80,9 @@ function modeColor(m) { return groupOf(m).color; }
 function modeOf(i) { return MODES[D.mode[i]]; }
 // strava adds Strava's mark in the top right corner.
 var STRAVA_MARK = '<span class="strava-mark" title="From Strava"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.6 1.5 11 10H8.4L6.6 6.6 4.8 10H2.2zM10.3 10.6l1.2 2.4 1.2-2.4h1.9l-3.1 6-3.1-6z" fill="#fff"/></svg></span>';
+// Trips from a simulated file (see merge) get a "Simulated" tag wherever they are shown.
+function isSim(i) { return !!(D.srcs && D.srcs[i] === SRC.sim); }
+function simTag(i) { return isSim(i) ? '<span class="guess sim">Simulated</span>' : ''; }
 function badge(m, small, strava) { return '<span class="mode-badge' + (small ? ' sm' : '') + '" style="background:' + modeColor(m) + '">' + icon(m) + (strava ? STRAVA_MARK : '') + '</span>'; }
 
 // ---------- preferences ----------

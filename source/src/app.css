@@ -198,6 +198,9 @@ details.help b { color: var(--fg); font-weight: 500; }
 .guess { display: inline-block; font-size: 10px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: #8a5a00; background: #fff1cc; border-radius: 4px; padding: 1px 5px; margin-left: 6px; vertical-align: 1px; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .guess { color: #ffd27a; background: #3d2e0a; } }
 :root[data-theme="dark"] .guess { color: #ffd27a; background: #3d2e0a; }
+.guess.sim { color: #1f4f8a; background: #dde9fb; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .guess.sim { color: #a9cbff; background: #14284a; } }
+:root[data-theme="dark"] .guess.sim { color: #a9cbff; background: #14284a; }
 
 /* Map tooltip and hover (mouse only) */
 .leaflet-container { font-family: var(--font-body); background: var(--grid); }

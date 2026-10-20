@@ -498,8 +498,10 @@ function merge(base, parts) {
       if (a < p.ve[i]) vidx.push([pi, i, a, p.ve[i]]);
     }
   });
-  idx.sort(function (a, b) { return all[a[0]].start[a[1]] - all[b[0]].start[b[1]]; });
-  vidx.sort(function (a, b) { return a[2] - b[2]; });
+  // At the same start, the most recently loaded file comes first, so its copy is the one kept below
+  // (a regenerated file replaces what was loaded before).
+  idx.sort(function (a, b) { return all[a[0]].start[a[1]] - all[b[0]].start[b[1]] || b[0] - a[0]; });
+  vidx.sort(function (a, b) { return a[2] - b[2] || b[0] - a[0]; });
   var out = idx.filter(function (x, j) {
     if (!j) return true;
     var y = idx[j - 1], p = all[x[0]], q = all[y[0]];

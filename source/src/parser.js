@@ -351,9 +351,12 @@ function parseRecords(o, c) {
 
 // Source codes, highest priority first when the same day appears in several exports.
 // Strava activities don't compete per day; they replace the Timeline trips they cover (see withStrava).
-var SRC = { device: 0, ios: 1, semantic: 2, records: 3, strava: 9 };
+// Simulated trips (an on-device-format file with "simulated": true at the top) don't compete per day
+// either; they replace whatever overlaps them in time (see merge).
+var SRC = { device: 0, ios: 1, semantic: 2, records: 3, sim: 8, strava: 9 };
 var KIND_LABEL = ['Timeline.json (on-device)', 'iPhone Timeline export', 'Takeout Semantic Location History', 'Takeout Records.json'];
 KIND_LABEL[SRC.strava] = 'Strava';
+KIND_LABEL[SRC.sim] = 'Simulated trips';
 var MODES = Object.keys(MODE_ALIASES);
 var MODE_IDX = {};
 MODES.forEach(function (m, i) { MODE_IDX[m] = i; });
@@ -401,7 +404,7 @@ var NOT_TIMELINE = "This file doesn't look like Google Timeline data. Pick Timel
 function parseTimeline(o) {
   var c = new Collector(), src;
   if (Array.isArray(o)) { src = SRC.ios; parseIos(o, c); }
-  else if (o && o.semanticSegments) { src = SRC.device; parseAndroid(o, c); }
+  else if (o && o.semanticSegments) { src = o.simulated === true ? SRC.sim : SRC.device; parseAndroid(o, c); }
   else if (o && o.locations) { src = SRC.records; parseRecords(o, c); }
   else if (o && o.timelineObjects) { src = SRC.semantic; parseSemantic(o, c); }
   else throw new Error(NOT_TIMELINE);

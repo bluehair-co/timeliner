@@ -437,6 +437,10 @@ function setStatus(text, isErr) {
   if (text && D) toast(text);
 }
 // Combine exports. When several cover the same day, the newest kind of export wins for that day.
+// Simulated trips and stays always win: they are kept whatever the day, an exported trip that
+// overlaps them for at least half of its time (or half of theirs) is left out, and exported stays
+// are cut back to the time around them. A few minutes' overlap at the ends is not a conflict, so
+// the walk to the station stays.
 // Strava activities are kept apart (R.strava) and laid over the Timeline trips by withStrava.
 function merge(base, parts) {
   var sv = parts.filter(function (p) { return p.strava; });
@@ -444,37 +448,76 @@ function merge(base, parts) {
   var all = (base ? [upgrade(base)] : []).concat(parts.map(upgrade)), total = 0;
   function src(p, i) { return p.srcs ? p.srcs[i] : p.src; }
   function vsrc(p, i) { return p.vsrcs && p.vsrcs.length ? p.vsrcs[i] : p.src; }
-  var best = {};
+  var best = {}, sim = [];
   all.forEach(function (p) {
     var i, s, d;
-    for (i = 0; i < p.day.length; i++) { s = src(p, i); d = p.day[i]; if (best[d] === undefined || s < best[d]) best[d] = s; }
-    for (i = 0; i < p.vs.length; i++) { s = vsrc(p, i); d = p.vday[i]; if (best[d] === undefined || s < best[d]) best[d] = s; }
+    for (i = 0; i < p.day.length; i++) {
+      s = src(p, i); d = p.day[i];
+      if (s === SRC.sim) sim.push([p.start[i], p.end[i]]);
+      else if (best[d] === undefined || s < best[d]) best[d] = s;
+    }
+    for (i = 0; i < p.vs.length; i++) {
+      s = vsrc(p, i); d = p.vday[i];
+      if (s === SRC.sim) sim.push([p.vs[i], p.ve[i]]);
+      else if (best[d] === undefined || s < best[d]) best[d] = s;
+    }
     total += p.day.length;
   });
-  var idx = [], vidx = [];
+  sim.sort(function (a, b) { return a[0] - b[0]; });
+  // The simulated stretches that overlap [s, e), in time order.
+  function simIn(s, e) {
+    var lo = 0, hi = sim.length, out = [];
+    while (lo < hi) { var mid = (lo + hi) >> 1; if (sim[mid][0] < e) lo = mid + 1; else hi = mid; }
+    for (var k = 0; k < lo; k++) if (sim[k][1] > s) out.push(sim[k]);
+    return out;
+  }
+  function simClash(s, e) {
+    var tot = 0, xs = simIn(s, Math.max(e, s + 1));
+    for (var k = 0; k < xs.length; k++) {
+      var ov = Math.min(e, xs[k][1]) - Math.max(s, xs[k][0]);
+      if (ov >= (xs[k][1] - xs[k][0]) / 2) return true;
+      tot += Math.max(0, ov);
+    }
+    return xs.length > 0 && tot >= (e - s) / 2;
+  }
+  var idx = [], vidx = [], simOut = 0;
   all.forEach(function (p, pi) {
-    var i;
-    for (i = 0; i < p.day.length; i++) if (src(p, i) === best[p.day[i]]) idx.push([pi, i]);
-    for (i = 0; i < p.vs.length; i++) if (vsrc(p, i) === best[p.vday[i]]) vidx.push([pi, i]);
+    var i, s;
+    for (i = 0; i < p.day.length; i++) {
+      s = src(p, i);
+      if (s === SRC.sim) idx.push([pi, i]);
+      else if (s === best[p.day[i]]) { if (simClash(p.start[i], p.end[i])) simOut++; else idx.push([pi, i]); }
+    }
+    for (i = 0; i < p.vs.length; i++) {
+      s = vsrc(p, i);
+      if (s === SRC.sim) { vidx.push([pi, i, p.vs[i], p.ve[i]]); continue; }
+      if (s !== best[p.vday[i]]) continue;
+      // Keep the parts of the stay outside the simulated stretches.
+      var a = p.vs[i];
+      simIn(a, p.ve[i]).forEach(function (x) { if (x[0] > a) vidx.push([pi, i, a, x[0]]); a = Math.max(a, x[1]); });
+      if (a < p.ve[i]) vidx.push([pi, i, a, p.ve[i]]);
+    }
   });
   idx.sort(function (a, b) { return all[a[0]].start[a[1]] - all[b[0]].start[b[1]]; });
-  vidx.sort(function (a, b) { return all[a[0]].vs[a[1]] - all[b[0]].vs[b[1]]; });
+  vidx.sort(function (a, b) { return a[2] - b[2]; });
   var out = idx.filter(function (x, j) {
     if (!j) return true;
     var y = idx[j - 1], p = all[x[0]], q = all[y[0]];
     return !(p.start[x[1]] === q.start[y[1]] && p.mode[x[1]] === q.mode[y[1]]);
   });
-  var vout = vidx.filter(function (x, j) { return !j || all[x[0]].vs[x[1]] !== all[vidx[j - 1][0]].vs[vidx[j - 1][1]]; });
+  var vout = vidx.filter(function (x, j) { return !j || x[2] !== vidx[j - 1][2]; });
   var nv = vout.length;
   var R = gather(all, out, src);
   R.vs = new Float64Array(nv); R.ve = new Float64Array(nv); R.vday = new Int32Array(nv); R.voff = new Int16Array(nv); R.vll = new Float32Array(2 * nv); R.vtype = new Uint8Array(nv); R.vname = []; R.vsrcs = new Uint8Array(nv);
   R.files = (base ? base.files || [] : []).concat(parts.concat(sv).map(function (p) { return { name: p.name, kind: p.kind }; }));
   vout.forEach(function (x, j) {
     var p = all[x[0]], i = x[1];
-    R.vs[j] = p.vs[i]; R.ve[j] = p.ve[i]; R.vday[j] = p.vday[i]; R.voff[j] = p.voff[i];
+    R.vs[j] = x[2]; R.ve[j] = x[3]; R.voff[j] = p.voff[i];
+    R.vday[j] = x[2] === p.vs[i] ? p.vday[i] : dayOf({ ms: x[2], off: p.voff[i] === NO_OFF ? null : p.voff[i] });
     R.vll[2 * j] = p.vll[2 * i]; R.vll[2 * j + 1] = p.vll[2 * i + 1]; R.vtype[j] = p.vtype[i]; R.vname.push(p.vname[i] || ''); R.vsrcs[j] = vsrc(p, i);
   });
-  R.dropped = total - out.length;
+  R.simReplaced = simOut;
+  R.dropped = total - out.length - simOut;
   // Strava: the same activity loaded twice (an export, then a newer one) is kept once.
   var sall = (base && base.strava ? [base.strava] : []).concat(sv), sidx = [];
   sall.forEach(function (p, pi) { for (var i = 0; i < p.start.length; i++) sidx.push([pi, i]); });
@@ -606,6 +649,7 @@ function importFiles(list) {
       var msg = onlyStrava ? '' : 'Loaded ' + tripsText(D.day.length) + (nv ? ' and ' + fmt(nv) + ' stays' : '') + ' from ' + r.results.length + ' file' + (r.results.length > 1 ? 's' : '') + '.';
       if (r.skipped) msg += ' Skipped ' + r.skipped + ' file' + (r.skipped > 1 ? 's' : '') + ' without Timeline data.';
       if (next.dropped) msg += ' Left out ' + fmt(next.dropped) + ' trips already covered by another export.';
+      if (next.simReplaced) msg += ' Simulated trips replaced ' + fmt(next.simReplaced) + ' exported trip' + (next.simReplaced === 1 ? '' : 's') + '.';
       if (r.results.some(function (x) { return x.strava; })) msg += ' ' + stravaText(D.stravaStats);
       msg = msg.trim();
       if (r.errors.length) msg += ' Problems: ' + r.errors.join(' · ');

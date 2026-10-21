@@ -315,9 +315,12 @@ function parseSemantic(o, c) {
 // Records.json has raw points only, so trips are rebuilt: consecutive points
 // with the same transport mode form a trip, and a long fast jump between
 // two points (no data while in the air) counts as a flight.
-function RecordTrips(c) { this.c = c; this.prev = null; this.cur = null; }
-RecordTrips.prototype.point = function (ll, t, mode) {
+// Every usable point is also kept in a compact track (time, position, phone), which
+// later gives the trips from Timeline exports their full GPS trail (see withTrack).
+function RecordTrips(c) { this.c = c; this.prev = null; this.cur = null; this.tt = []; this.tll = []; this.tdev = []; }
+RecordTrips.prototype.point = function (ll, t, mode, dev) {
   if (!ll || !t) return;
+  this.tt.push(t.ms); this.tll.push(ll[0], ll[1]); this.tdev.push(dev | 0);
   var p = this.prev;
   this.prev = { ll: ll, t: t };
   if (!p || t.ms <= p.t.ms) return;
@@ -340,13 +343,143 @@ function recordMode(L) {
   for (var k = 0; k < a.length; k++) if (!best || a[k].confidence > best.confidence) best = a[k];
   return best ? normMode(best.type) : 'UNKNOWN';
 }
+// Fixes worse than this (mostly cell towers, often kilometres off) are left out.
+var MAX_ACCURACY = 200;
 function addRecord(L, rt) {
-  rt.point(e7(L.latitudeE7, L.longitudeE7), parseTime(L.timestamp != null ? L.timestamp : L.timestampMs), recordMode(L));
+  if (L.accuracy > MAX_ACCURACY) return;
+  rt.point(e7(L.latitudeE7, L.longitudeE7), parseTime(L.timestamp != null ? L.timestamp : L.timestampMs), recordMode(L), L.deviceTag);
+}
+// The track in time order (a file is almost always in order already).
+RecordTrips.prototype.track = function () {
+  var n = this.tt.length, t = this.tt, ord = null, i;
+  for (i = 1; i < n; i++) if (t[i] < t[i - 1]) break;
+  if (i < n) ord = Array.from({ length: n }, function (_, k) { return k; }).sort(function (a, b) { return t[a] - t[b]; });
+  var T = new Float64Array(n), LL = new Float32Array(2 * n), DV = new Int32Array(n);
+  for (i = 0; i < n; i++) {
+    var k = ord ? ord[i] : i;
+    T[i] = t[k]; LL[2 * i] = this.tll[2 * k]; LL[2 * i + 1] = this.tll[2 * k + 1]; DV[i] = this.tdev[k];
+  }
+  return { t: T, ll: LL, dev: DV };
+};
+function finishRecords(c, rt) {
+  rt.flush();
+  var r = finish(c, SRC.records);
+  r.track = rt.track();
+  return r;
 }
 function parseRecords(o, c) {
   var locs = o.locations || [], rt = new RecordTrips(c);
   for (var i = 0; i < locs.length; i++) addRecord(locs[i], rt);
-  rt.flush();
+  return rt;
+}
+
+// ---------- Records GPS under Timeline trips ----------
+// Timeline exports keep a point every few minutes; Records.json keeps one about every minute,
+// from the same phone. withTrack gives each Timeline trip the Records points recorded during it,
+// so its line and the heatmap follow the real route. Marked with the RECORDS_GPS bit in est.
+var RECORDS_GPS = 32;
+// Several tracks (one per Records file) as one, in time order; a point loaded twice is kept once.
+function mergeTracks(list) {
+  list = list.filter(function (x) { return x && x.t && x.t.length; });
+  if (!list.length) return null;
+  if (list.length === 1) return list[0];
+  list.sort(function (a, b) { return a.t[0] - b.t[0]; });
+  var n = 0, i, j, sorted = true;
+  for (i = 0; i < list.length; i++) { n += list[i].t.length; if (i && list[i].t[0] < list[i - 1].t[list[i - 1].t.length - 1]) sorted = false; }
+  var t = new Float64Array(n), ll = new Float32Array(2 * n), dev = new Int32Array(n), w = 0;
+  for (i = 0; i < list.length; i++) {
+    t.set(list[i].t, w); ll.set(list[i].ll, 2 * w); dev.set(list[i].dev, w); w += list[i].t.length;
+  }
+  var ord = null;
+  if (!sorted) ord = Uint32Array.from(Array.from({ length: n }, function (_, k) { return k; }).sort(function (a, b) { return t[a] - t[b]; }));
+  var T = new Float64Array(n), LL = new Float32Array(2 * n), DV = new Int32Array(n);
+  for (i = 0, j = 0; i < n; i++) {
+    var k = ord ? ord[i] : i;
+    if (j && t[k] === T[j - 1]) continue;
+    T[j] = t[k]; LL[2 * j] = ll[2 * k]; LL[2 * j + 1] = ll[2 * k + 1]; DV[j] = dev[k]; j++;
+  }
+  return { t: T.slice(0, j), ll: LL.slice(0, 2 * j), dev: DV.slice(0, j) };
+}
+function firstAt(t, ms) {
+  var lo = 0, hi = t.length;
+  while (lo < hi) { var mid = (lo + hi) >> 1; if (t[mid] < ms) lo = mid + 1; else hi = mid; }
+  return lo;
+}
+// The Records points for trip i of R: from one phone only (the one whose points match the
+// trip's own trail, which Timeline took from that phone), without single stray jumps.
+function trackFor(R, T, i, mode) {
+  var lo = firstAt(T.t, R.start[i]), hi = firstAt(T.t, R.end[i] + 1), k, j;
+  if (hi - lo < 3) return null;
+  var count = {}, devs = [];
+  for (k = lo; k < hi; k++) { if (!count[T.dev[k]]) { count[T.dev[k]] = 0; devs.push(T.dev[k]); } count[T.dev[k]]++; }
+  var dev = devs[0];
+  if (devs.length > 1) {
+    var own = [[R.from[2 * i], R.from[2 * i + 1]], [R.to[2 * i], R.to[2 * i + 1]]], score = {}, best = -1;
+    for (j = R.pathOff[i]; j < R.pathOff[i + 1]; j++) own.push([R.pathPts[2 * j], R.pathPts[2 * j + 1]]);
+    for (k = lo; k < hi; k++) {
+      var p = [T.ll[2 * k], T.ll[2 * k + 1]];
+      for (j = 0; j < own.length; j++) if (km(p, own[j]) < 0.05) { score[T.dev[k]] = (score[T.dev[k]] || 0) + 1; break; }
+    }
+    devs.forEach(function (d) {
+      var s = (score[d] || 0) * 1e6 + count[d];
+      if (s > best) { best = s; dev = d; }
+    });
+  }
+  var pts = [], ts = [];
+  for (k = lo; k < hi; k++) if (T.dev[k] === dev) { pts.push([T.ll[2 * k], T.ll[2 * k + 1]]); ts.push(T.t[k]); }
+  // A point far off the line that the next point comes straight back from is a bad fix.
+  var cap = Math.max(30, 1.5 * (MAX_KMH[mode] || 200)), keep = [pts[0]], kt = [ts[0]];
+  for (k = 1; k < pts.length; k++) {
+    var a = keep[keep.length - 1], h1 = (ts[k] - kt[kt.length - 1]) / 36e5, d1 = km(a, pts[k]);
+    if (k + 1 < pts.length && d1 > 1 && (h1 <= 0 || d1 / h1 > cap)) {
+      var h2 = (ts[k + 1] - ts[k]) / 36e5, d2 = km(pts[k], pts[k + 1]);
+      if ((h2 <= 0 || d2 / h2 > cap) && km(a, pts[k + 1]) < d1) continue;
+    }
+    keep.push(pts[k]); kt.push(ts[k]);
+  }
+  return keep.length >= 3 ? { pts: keep, ts: kt } : null;
+}
+// R with the trips from Timeline exports re-drawn on the Records track T. The distance is
+// measured along the track too (smoothed to 25 m, so GPS jitter adds nothing) when it covers the whole trip (no gap over 15 minutes, and
+// within 10 minutes of both ends); Timeline's own distance is kept in orig.
+function withTrack(R, T) {
+  if (!T || !T.t.length) return R;
+  var n = R.start.length, paths = new Array(n), any = false, i, mode;
+  var est = Uint8Array.from(R.est), kmv = Float32Array.from(R.km), orig = Float32Array.from(R.orig);
+  for (i = 0; i < n; i++) {
+    var s = R.srcs ? R.srcs[i] : R.src;
+    mode = MODES[R.mode[i]];
+    if (s === SRC.records || s === SRC.strava || s === SRC.sim || est[i] & (RECORDS_GPS | STRAVA) || mode === 'FLYING') continue;
+    var tr = trackFor(R, T, i, mode);
+    if (!tr || tr.pts.length <= R.pathOff[i + 1] - R.pathOff[i]) continue;
+    var a = [R.from[2 * i], R.from[2 * i + 1]], b = [R.to[2 * i], R.to[2 * i + 1]], dur = (R.end[i] - R.start[i]) / 1000;
+    var trail = [], times = [];
+    if (isFinite(a[0])) { trail.push(a); times.push(0); }
+    tr.pts.forEach(function (p, k) { trail.push(p); times.push((tr.ts[k] - R.start[i]) / 1000); });
+    if (isFinite(b[0])) { trail.push(b); times.push(dur); }
+    var keep = simplify(trail, 6);
+    paths[i] = { pts: keep.map(function (k) { return trail[k]; }), t: keep.map(function (k) { return times[k]; }) };
+    est[i] |= RECORDS_GPS; any = true;
+    var gap = Math.max(tr.ts[0] - R.start[i], R.end[i] - tr.ts[tr.ts.length - 1]), inner = 0;
+    for (var k = 1; k < tr.ts.length; k++) inner = Math.max(inner, tr.ts[k] - tr.ts[k - 1]);
+    if (gap > 10 * 60000 || inner > 15 * 60000 || mode === 'UNKNOWN') continue;
+    var d = pathKm(simplify(trail, 25).map(function (k) { return trail[k]; })), hours = dur / 3600;
+    if (!(d > 0) || (hours > 0 && d / hours > (MAX_KMH[mode] || 200))) continue;
+    if (!(est[i] & FIXED)) orig[i] = (est[i] & 3) === 0 ? kmv[i] : 0;
+    kmv[i] = d; est[i] = (est[i] & ~3) | 1;
+  }
+  if (!any) return R;
+  var O = {}, w = 0, np = 0;
+  Object.keys(R).forEach(function (key) { O[key] = R[key]; });
+  for (i = 0; i < n; i++) np += paths[i] ? paths[i].pts.length : R.pathOff[i + 1] - R.pathOff[i];
+  O.pathPts = new Float32Array(2 * np); O.pathT = new Float32Array(np); O.pathOff = new Uint32Array(n + 1);
+  for (i = 0; i < n; i++) {
+    if (paths[i]) for (var q = 0; q < paths[i].pts.length; q++, w++) { O.pathPts[2 * w] = paths[i].pts[q][0]; O.pathPts[2 * w + 1] = paths[i].pts[q][1]; O.pathT[w] = paths[i].t[q]; }
+    else for (q = R.pathOff[i]; q < R.pathOff[i + 1]; q++, w++) { O.pathPts[2 * w] = R.pathPts[2 * q]; O.pathPts[2 * w + 1] = R.pathPts[2 * q + 1]; O.pathT[w] = R.pathT[q]; }
+    O.pathOff[i + 1] = w;
+  }
+  O.est = est; O.km = kmv; O.orig = orig;
+  return O;
 }
 
 // Source codes, highest priority first when the same day appears in several exports.
@@ -405,7 +538,7 @@ function parseTimeline(o) {
   var c = new Collector(), src;
   if (Array.isArray(o)) { src = SRC.ios; parseIos(o, c); }
   else if (o && o.semanticSegments) { src = o.simulated === true ? SRC.sim : SRC.device; parseAndroid(o, c); }
-  else if (o && o.locations) { src = SRC.records; parseRecords(o, c); }
+  else if (o && o.locations) return finishRecords(c, parseRecords(o, c));
   else if (o && o.timelineObjects) { src = SRC.semantic; parseSemantic(o, c); }
   else throw new Error(NOT_TIMELINE);
   return finish(c, src);
@@ -428,7 +561,7 @@ function parseRecordsStream(file, onProgress) {
   var CH = 8 << 20, off = 0, dec = new TextDecoder();
   var buf = '', pos = 0, depth = 0, inStr = false, esc = false, start = -1;
   function step() {
-    if (off >= file.size) { rt.flush(); return Promise.resolve(finish(c, SRC.records)); }
+    if (off >= file.size) return Promise.resolve(finishRecords(c, rt));
     return file.slice(off, off + CH).arrayBuffer().then(function (ab) {
       off += ab.byteLength;
       buf += dec.decode(new Uint8Array(ab), { stream: off < file.size });
@@ -728,4 +861,4 @@ if (typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScop
     })(0);
   };
 }
-if (typeof module !== 'undefined') module.exports = { parseTimeline: parseTimeline, MODES: MODES, normMode: normMode, km: km, SRC: SRC, NO_OFF: NO_OFF, parseFile: parseFile, STRAVA: STRAVA };
+if (typeof module !== 'undefined') module.exports = { parseTimeline: parseTimeline, withTrack: withTrack, mergeTracks: mergeTracks, RECORDS_GPS: RECORDS_GPS, MODES: MODES, normMode: normMode, km: km, SRC: SRC, NO_OFF: NO_OFF, parseFile: parseFile, STRAVA: STRAVA };

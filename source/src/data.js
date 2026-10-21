@@ -96,17 +96,17 @@ function setData(R) {
 }
 
 // ---------- filters ----------
-// On a phone the app opens on the last 7 days. If nothing was recorded in them (an older
-// export), it shows the last 7 days in the data instead.
+// The app opens on the last 7 days. If nothing was recorded in them (an older export),
+// it shows the last 7 days in the data instead.
 function lastWeek() {
   var today = todayDay(), end = today;
   if (M.maxD < today - 6) end = M.maxD;
   return [end - 6, end];
 }
 function defaultFilters() {
-  var wk = wide() ? null : lastWeek();
+  var wk = lastWeek();
   return {
-    dm: wk ? 'range' : 'all', one: M.maxD, from: wk ? wk[0] : M.minD, to: wk ? wk[1] : M.maxD,
+    dm: 'week', one: M.maxD, from: wk[0], to: wk[1],
     years: new Set(M.years), months: new Set([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]), dows: new Set([0, 1, 2, 3, 4, 5, 6]),
     h0: 0, h1: 24, modes: new Set(M.modes), countries: new Set(M.countries), guess: 'all', src: 'all'
   };
@@ -130,7 +130,7 @@ function hourOk(h) {
 }
 function dayOk(d) {
   if (F.dm === 'one') return d === F.one;
-  if (F.dm === 'range') return d >= F.from && d <= F.to;
+  if (F.dm === 'range' || F.dm === 'week') return d >= F.from && d <= F.to;
   return true;
 }
 function apply() {
@@ -168,7 +168,7 @@ var applyTimer = 0;
 function changed() { clearTimeout(applyTimer); applyTimer = setTimeout(apply, 30); }
 
 function filterText() {
-  var t = F.dm === 'one' ? niceDate(F.one) : F.dm === 'range' ? (F.from === F.to ? niceDate(F.from) : niceDate(F.from) + ' – ' + niceDate(F.to)) : 'All time';
+  var t = F.dm === 'one' ? niceDate(F.one) : F.dm !== 'all' ? (F.from === F.to ? niceDate(F.from) : niceDate(F.from) + ' – ' + niceDate(F.to)) : 'All time';
   var k = activeFilters() - (F.dm !== 'all' ? 1 : 0);
   return t + (k ? ' · ' + k + ' filter' + (k > 1 ? 's' : '') : '');
 }
@@ -249,6 +249,7 @@ $('filtersSheet').addEventListener('click', function (ev) {
   } else if (b.dataset.dm) {
     F.dm = b.dataset.dm;
     if (F.dm === 'one' && M.navDays.length && M.navDays.indexOf(F.one) < 0) F.one = M.navDays[M.navDays.length - 1];
+    if (F.dm === 'week') { var wk = lastWeek(); F.from = wk[0]; F.to = wk[1]; }
   } else if (b.dataset.g) F.guess = b.dataset.g;
   else if (b.dataset.src) F.src = b.dataset.src;
   else if (b.id === 'dowWeekdays') F.dows = new Set([1, 2, 3, 4, 5]);

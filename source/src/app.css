@@ -335,6 +335,7 @@ svg text { font-family: var(--font-body); font-size: 11px; fill: var(--muted); }
 #app:not(.no-data) .welcome { display: none; }
 .no-data .page { visibility: hidden; }
 @media (pointer: coarse) { .desktop-only { display: none !important; } }
+@media (max-width: 360px) { .seg.full button { padding-left: 6px; padding-right: 6px; } }
 .leaflet-control-zoom { margin-bottom: calc(var(--dock-h) + var(--dock-gap) + 90px + var(--safe-b)) !important; }
 .heat-canvas { position: absolute; left: 0; top: 0; }
 .list-rows .hit-row { padding: 10px 2px; }

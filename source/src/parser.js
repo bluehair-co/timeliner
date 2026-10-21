@@ -221,25 +221,6 @@ var BAD_POINTS = [
   // 12 Apr 2026 Toronto → Amsterdam: one fix in Playa del Carmen, Mexico, mid-flight.
   { from: '2026-04-12T20:00:00Z', to: '2026-04-13T05:00:00Z', bad: [20.6733, -87.024], fix: [43.6777, -79.6248] }
 ];
-// Trips whose transport type the owner set by hand: a trip (any source, except flights) with at
-// least half of its time inside [from, to] takes `mode`, marked with the BY_HAND bit in est.
-var BY_HAND = 128;
-var MODE_FIXES = [
-  // 8 Aug 2013, Sardinia: boat trip along the Gulf of Orosei.
-  { from: '2013-08-08T12:00:00+02:00', to: '2013-08-08T18:00:00+02:00', mode: 'BOAT' }
-];
-function fixModes(R) {
-  var fly = MODES.indexOf('FLYING'), i, k;
-  for (k = 0; k < MODE_FIXES.length; k++) {
-    var f = MODE_FIXES[k], a = Date.parse(f.from), b = Date.parse(f.to), m = MODES.indexOf(f.mode);
-    for (i = 0; i < R.start.length; i++) {
-      var s = R.start[i], e = R.end[i], ov = Math.min(e, b) - Math.max(s, a);
-      if (R.mode[i] === fly || !(e > s ? ov >= (e - s) / 2 : s >= a && s <= b)) continue;
-      R.mode[i] = m; R.est[i] = (R.est[i] & ~GUESSED) | BY_HAND;
-    }
-  }
-  return R;
-}
 function badPoint(ms, ll) {
   for (var i = 0; ll && i < BAD_POINTS.length; i++) {
     var b = BAD_POINTS[i];

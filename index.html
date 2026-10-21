@@ -2319,7 +2319,8 @@ function setStatus(text, isErr) {
   ['welcomeStatus', 'importStatus'].forEach(function (id) { $(id).textContent = text || ''; $(id).className = 'status' + (isErr ? ' err' : ''); });
   if (text && D) toast(text);
 }
-// Combine exports. When several cover the same day, the newest kind of export wins for that day.
+// Combine exports. When several cover the same day, the newest kind of export wins for that day,
+// except for Records.json trips in the gaps it left (see inGap).
 // Simulated trips and stays always win: they are kept whatever the day, an exported trip that
 // overlaps them for at least half of its time (or half of theirs) is left out, and exported stays
 // are cut back to the time around them. A few minutes' overlap at the ends is not a conflict, so
@@ -2363,13 +2364,43 @@ function merge(base, parts) {
     }
     return xs.length > 0 && tot >= (e - s) / 2;
   }
-  var idx = [], vidx = [], simOut = 0;
+  // What the winning exports cover, in time order. A Records.json trip on a day another export
+  // won is still kept when it falls in a gap they left (Timeline exports often record a stay and
+  // nothing else on a day of driving): at most a fifth of it overlaps their trips, and at most
+  // half of it their stays (whose ends are often loose). Flights are left to the winning export.
+  function overlaps(list) {
+    list.sort(function (a, b) { return a[0] - b[0]; });
+    var mx = 0;
+    list.forEach(function (x) { mx = Math.max(mx, x[1] - x[0]); });
+    return function (s, e) {
+      var lo = 0, hi = list.length, ov = 0, last = s;
+      while (lo < hi) { var mid = (lo + hi) >> 1; if (list[mid][0] < s - mx) lo = mid + 1; else hi = mid; }
+      for (var k = lo; k < list.length && list[k][0] < e; k++) {
+        var a = Math.max(last, list[k][0]), b = Math.min(e, list[k][1]);
+        if (b > a) { ov += b - a; last = b; }
+      }
+      return ov;
+    };
+  }
+  var coverT = [], coverV = [], fly = MODES.indexOf('FLYING');
+  all.forEach(function (p) {
+    var i, s;
+    for (i = 0; i < p.day.length; i++) { s = src(p, i); if (s !== SRC.sim && s !== SRC.records && s === best[p.day[i]]) coverT.push([p.start[i], p.end[i]]); }
+    for (i = 0; i < p.vs.length; i++) { s = vsrc(p, i); if (s !== SRC.sim && s !== SRC.records && s === best[p.vday[i]]) coverV.push([p.vs[i], p.ve[i]]); }
+  });
+  var ovT = overlaps(coverT), ovV = overlaps(coverV);
+  function inGap(p, i) {
+    var s = p.start[i], e = p.end[i];
+    return e > s && p.mode[i] !== fly && ovT(s, e) <= (e - s) / 5 && ovV(s, e) <= (e - s) / 2;
+  }
+  var idx = [], vidx = [], simOut = 0, gapKept = 0;
   all.forEach(function (p, pi) {
     var i, s;
     for (i = 0; i < p.day.length; i++) {
       s = src(p, i);
       if (s === SRC.sim) idx.push([pi, i]);
       else if (s === best[p.day[i]]) { if (simClash(p.start[i], p.end[i])) simOut++; else idx.push([pi, i]); }
+      else if (s === SRC.records && inGap(p, i) && !simClash(p.start[i], p.end[i])) { idx.push([pi, i]); gapKept++; }
     }
     for (i = 0; i < p.vs.length; i++) {
       s = vsrc(p, i);
@@ -2410,7 +2441,7 @@ function merge(base, parts) {
     for (i_ = 0; i_ < R.est.length; i_++) if (R.est[i_] & RECORDS_GPS) after++;
     R.track = track; R.redrawn = after - before;
   }
-  R.simReplaced = simOut;
+  R.simReplaced = simOut; R.gapKept = gapKept;
   R.dropped = total - out.length - simOut;
   // Strava: the same activity loaded twice (an export, then a newer one) is kept once.
   var sall = (base && base.strava ? [base.strava] : []).concat(sv), sidx = [];
@@ -2543,6 +2574,7 @@ function importFiles(list) {
       var msg = onlyStrava ? '' : 'Loaded ' + tripsText(D.day.length) + (nv ? ' and ' + fmt(nv) + ' stays' : '') + ' from ' + r.results.length + ' file' + (r.results.length > 1 ? 's' : '') + '.';
       if (r.skipped) msg += ' Skipped ' + r.skipped + ' file' + (r.skipped > 1 ? 's' : '') + ' without Timeline data.';
       if (next.dropped) msg += ' Left out ' + fmt(next.dropped) + ' trips already covered by another export.';
+      if (next.gapKept) msg += ' Kept ' + tripsText(next.gapKept) + ' from Records.json where Timeline recorded nothing.';
       if (next.redrawn) msg += ' Drew ' + tripsText(next.redrawn) + ' along the GPS trail from Records.json.';
       if (next.simReplaced) msg += ' Simulated trips replaced ' + fmt(next.simReplaced) + ' exported trip' + (next.simReplaced === 1 ? '' : 's') + '.';
       if (r.results.some(function (x) { return x.strava; })) msg += ' ' + stravaText(D.stravaStats);

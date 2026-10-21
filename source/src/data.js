@@ -55,7 +55,7 @@ function tagCountries() {
 
 function setData(R) {
   RAW = upgrade(R);
-  D = withStrava(RAW);
+  D = fixModes(withStrava(RAW));
   $('app').classList.remove('no-data');
   var n = D.day.length, nv = D.vs.length, i, yc = {}, present = {};
   D.year = new Int16Array(n); D.month = new Int8Array(n); D.dow = new Int8Array(n); D.hour = new Int8Array(n);

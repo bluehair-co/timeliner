@@ -923,7 +923,7 @@ function parseAndroid(o, c) {
     s = segs[i];
     if (s.timelinePath) for (var j = 0; j < s.timelinePath.length; j++) {
       var p = s.timelinePath[j], t = parseTime(p.time) || parseTime(s.startTime), ll = parseLL(p.point);
-      if (t && ll && !badPoint(t.ms, ll)) paths.push([t.ms, ll]);
+      if (t && ll && !badPoint(t.ms, ll)) paths.push([t.ms, ll, t.off]);
     }
   }
   paths.sort(function (x, y) { return x[0] - y[0]; });
@@ -941,6 +941,64 @@ function parseAndroid(o, c) {
     if (et && (bad = badPoint(et.ms, bLL))) { bLL = bad.fix; meters = km(aLL, bLL) * 1000; }
     addActivity(c, a.topCandidate && a.topCandidate.type, st, et, meters, aLL, bLL, p.pts, p.ts);
   }
+  pathTrips(segs, paths, c);
+}
+// Timeline sometimes keeps GPS points while moving but no trip for them (older data often has a
+// day of driving as a few stays and nothing else). Points outside every trip and stay are joined
+// into trips: a run ends at a gap of over 30 minutes, a jump of over 50 km, or a trip or stay.
+// A run that gets at least 500 m from where it started becomes a trip with its type guessed from
+// its speed (see runMode), marked with the PATH_TRIP and GUESSED bits in est.
+var PATH_TRIP = 64;
+// The type from how fast it went while moving (the average would count every stop on the way):
+// the speed most of the moving legs stay under.
+function runMode(run) {
+  var v = [];
+  for (var j = 1; j < run.length; j++) {
+    var h = (run[j][0] - run[j - 1][0]) / 36e5, d = km(run[j - 1][1], run[j][1]);
+    if (h >= 1 / 60 && d > 0.05) v.push(d / h);
+  }
+  if (!v.length) return 'WALKING';
+  v.sort(function (x, y) { return x - y; });
+  var fast = v[Math.floor(0.8 * (v.length - 1))];
+  return fast >= 30 ? 'CAR' : fast >= 10 ? 'CYCLING' : 'WALKING';
+}
+function pathTrips(segs, paths, c) {
+  var spans = [], i, k = 0, M = 2 * 60000;
+  for (i = 0; i < segs.length; i++) {
+    var s = segs[i];
+    if (!s.visit && !s.activity) continue;
+    var st = parseTime(s.startTime), et = parseTime(s.endTime);
+    if (st && et) spans.push([st.ms, et.ms]);
+  }
+  spans.sort(function (a, b) { return a[0] - b[0]; });
+  // Covered: inside a trip or stay (with a little slack at the ends). k only moves forward, and
+  // the furthest end so far catches spans nested in a longer one.
+  var run = [], lastEnd = -Infinity;
+  function covered(ms) {
+    while (k < spans.length && spans[k][0] - M <= ms) { lastEnd = Math.max(lastEnd, spans[k][1]); k++; }
+    return ms <= lastEnd + M;
+  }
+  function flush() {
+    if (run.length >= 2) {
+      var a = run[0], b = run[run.length - 1], far = 0;
+      for (var j = 1; j < run.length; j++) far = Math.max(far, km(a[1], run[j][1]));
+      if (far >= 0.5) {
+        var inner = run.slice(1, -1), before = c.start.length, off = a[2];
+        c.add(runMode(run), { ms: a[0], off: off }, { ms: b[0], off: b[2] != null ? b[2] : off }, pathKm(run.map(function (x) { return x[1]; })), 1 | GUESSED, a[1], b[1],
+          inner.map(function (x) { return x[1]; }), inner.map(function (x) { return x[0]; }));
+        if (c.start.length > before) c.est[before] |= PATH_TRIP;
+      }
+    }
+    run = [];
+  }
+  for (i = 0; i < paths.length; i++) {
+    var p = paths[i], prev = run[run.length - 1], kBefore = k;
+    if (covered(p[0])) { flush(); continue; }
+    // A trip or stay that started since the previous point splits the run.
+    if (prev && (k > kBefore && spans[k - 1][0] > prev[0] || p[0] - prev[0] > 30 * 60000 || km(prev[1], p[1]) > 50)) flush();
+    run.push(p);
+  }
+  flush();
 }
 function between(L, a, b) {
   var lo = 0, hi = L.length;
@@ -1549,7 +1607,7 @@ if (typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScop
     })(0);
   };
 }
-if (typeof module !== 'undefined') module.exports = { parseTimeline: parseTimeline, withTrack: withTrack, mergeTracks: mergeTracks, RECORDS_GPS: RECORDS_GPS, MODES: MODES, normMode: normMode, km: km, SRC: SRC, NO_OFF: NO_OFF, parseFile: parseFile, STRAVA: STRAVA };
+if (typeof module !== 'undefined') module.exports = { PATH_TRIP: PATH_TRIP, parseTimeline: parseTimeline, withTrack: withTrack, mergeTracks: mergeTracks, RECORDS_GPS: RECORDS_GPS, MODES: MODES, normMode: normMode, km: km, SRC: SRC, NO_OFF: NO_OFF, parseFile: parseFile, STRAVA: STRAVA };
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
@@ -2907,8 +2965,9 @@ function tripRows(i) {
   var notes = [];
   if (e & 16) notes.push(D.repl[i] ? 'Recorded on Strava. It replaces ' + (D.repl[i] === 1 ? 'the less precise trip' : D.repl[i] + ' less precise trips') + ' Timeline recorded at the same time.' : 'Recorded on Strava. Timeline has no trip at this time.');
   if (isSim(i)) notes.push('Simulated from a file you loaded, not recorded by Timeline. It replaces any exported trip at the same time.');
+  if (e & PATH_TRIP) notes.push('Timeline kept GPS points here but no trip, so Timeliner made this trip from them.');
   if (e & 4) notes.push('Timeline gave this trip no transport type, or one that didn\'t fit its speed, so the type is guessed from the average speed.');
-  if (e & RECORDS_GPS) notes.push('The line follows the GPS points from Records.json' + ((e & 3) === 1 ? ', and the distance is measured along them' + (Math.abs(D.orig[i] - k) > 0.05 * k ? ' (Timeline said ' + dist(D.orig[i]) + ').' : '.') : '.'));
+  if (e & RECORDS_GPS) notes.push('The line follows the GPS points from Records.json' + ((e & 3) === 1 ? ', and the distance is measured along them' + (D.orig[i] > 0 && Math.abs(D.orig[i] - k) > 0.05 * k ? ' (Timeline said ' + dist(D.orig[i]) + ').' : '.') : '.'));
   else if (D.orig[i] > 0) notes.push('Timeline recorded ' + dist(D.orig[i]) + ' for this trip, which is impossible at its speed, so Timeliner uses the ' + ((e & 3) === 1 ? 'GPS trail' : 'straight line') + ' instead.');
   if (m === 'FLYING') notes.push('The cities are the nearest airports to where the flight started and ended.');
   else if (nGps < 3 && !(e & 16) && !isSim(i)) notes.push('Timeline kept few or no GPS points for this trip, so its line joins the start and end.');

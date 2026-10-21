@@ -518,6 +518,15 @@ function merge(base, parts) {
     R.vday[j] = x[2] === p.vs[i] ? p.vday[i] : dayOf({ ms: x[2], off: p.voff[i] === NO_OFF ? null : p.voff[i] });
     R.vll[2 * j] = p.vll[2 * i]; R.vll[2 * j + 1] = p.vll[2 * i + 1]; R.vtype[j] = p.vtype[i]; R.vname.push(p.vname[i] || ''); R.vsrcs[j] = vsrc(p, i);
   });
+  // Records points give the Timeline trips their full GPS trail (see withTrack).
+  var track = mergeTracks(all.map(function (p) { return p.track; }));
+  if (track) {
+    var before = 0, after = 0, i_;
+    for (i_ = 0; i_ < R.est.length; i_++) if (R.est[i_] & RECORDS_GPS) before++;
+    R = withTrack(R, track);
+    for (i_ = 0; i_ < R.est.length; i_++) if (R.est[i_] & RECORDS_GPS) after++;
+    R.track = track; R.redrawn = after - before;
+  }
   R.simReplaced = simOut;
   R.dropped = total - out.length - simOut;
   // Strava: the same activity loaded twice (an export, then a newer one) is kept once.
@@ -596,7 +605,7 @@ function withStrava(R) {
     O.est[j] |= STRAVA;
     if (off[k_] !== NO_OFF) { O.off[j] = off[k_]; O.day[j] = Math.floor((S.start[k_] + off[k_] * 60000) / 864e5); }
   });
-  ['vs', 've', 'vday', 'voff', 'vll', 'vtype', 'vname', 'vsrcs', 'files', 'strava'].forEach(function (key) { O[key] = R[key]; });
+  ['vs', 've', 'vday', 'voff', 'vll', 'vtype', 'vname', 'vsrcs', 'files', 'strava', 'track'].forEach(function (key) { O[key] = R[key]; });
   O.stravaStats = { acts: m, matched: matched, replaced: replaced, added: m - matched };
   return O;
 }
@@ -651,6 +660,7 @@ function importFiles(list) {
       var msg = onlyStrava ? '' : 'Loaded ' + tripsText(D.day.length) + (nv ? ' and ' + fmt(nv) + ' stays' : '') + ' from ' + r.results.length + ' file' + (r.results.length > 1 ? 's' : '') + '.';
       if (r.skipped) msg += ' Skipped ' + r.skipped + ' file' + (r.skipped > 1 ? 's' : '') + ' without Timeline data.';
       if (next.dropped) msg += ' Left out ' + fmt(next.dropped) + ' trips already covered by another export.';
+      if (next.redrawn) msg += ' Drew ' + tripsText(next.redrawn) + ' along the GPS trail from Records.json.';
       if (next.simReplaced) msg += ' Simulated trips replaced ' + fmt(next.simReplaced) + ' exported trip' + (next.simReplaced === 1 ? '' : 's') + '.';
       if (r.results.some(function (x) { return x.strava; })) msg += ' ' + stravaText(D.stravaStats);
       msg = msg.trim();
@@ -684,7 +694,7 @@ function saveData(R) {
   try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) { /* ignore */ }
   var keep = {};
   ['start', 'end', 'day', 'mode', 'km', 'est', 'off', 'orig', 'from', 'to', 'srcs', 'pathPts', 'pathT', 'pathOff',
-    'vs', 've', 'vday', 'voff', 'vll', 'vtype', 'vname', 'vsrcs', 'files', 'strava'].forEach(function (k) { keep[k] = R[k]; });
+    'vs', 've', 'vday', 'voff', 'vll', 'vtype', 'vname', 'vsrcs', 'files', 'strava', 'track'].forEach(function (k) { keep[k] = R[k]; });
   return withStore('timeliner', 'readwrite', function (s) { return s.put(keep, 'trips'); }).catch(function () { /* this visit still works */ });
 }
 function loadSaved() {

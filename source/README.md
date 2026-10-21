@@ -13,6 +13,10 @@ Your Timeline file is read on the device and is never uploaded.
 
 In Settings, *Load Strava export* takes the ZIP from Strava (Settings → My Account → Download or Delete Your Account), or single .gpx, .fit or .tcx files. Only the activity files inside the ZIP are read, so a large export with photos is fine. A Strava activity replaces every Timeline trip that is at least half inside its time (whatever transport Timeline guessed), and activities Timeline missed are added. Virtual rides are skipped. The Strava activities are saved apart from the Timeline trips, so re-importing either one keeps the match.
 
+## Records.json under Timeline
+
+Load the on-device Timeline.json together with Takeout Records.json files (all at once, or one after the other) to get the best of both. Timeline still decides where you stayed, how you travelled and where each trip starts and ends. Records.json, which keeps a GPS point about every minute where Timeline kept one every few minutes, gives those trips their line: each trip is drawn along the Records points recorded during it, and when they cover the whole trip (no gap over 15 minutes) its distance is measured along them too, with Timeline's own figure shown in the trip details. Points less accurate than 200 m are left out, and when two phones recorded at once, a trip uses the phone its own Timeline points came from. On days only Records.json covers, trips are rebuilt from its points as before. The Records points are saved on the device with the trips, so files loaded later are matched too.
+
 ## Simulated trips
 
 A file in the on-device Timeline.json format with `"simulated": true` at the top is read as simulated trips, for example trips rebuilt from booking emails. Where they clash with an exported Timeline, the simulated trips win: an exported trip that overlaps a simulated one for at least half of its time (or half of the simulated trip's time) is left out, and exported stays are cut back to the time around it. A few minutes' overlap at either end is not a clash, so the walk to the station stays. Everything else on those days still comes from the export.

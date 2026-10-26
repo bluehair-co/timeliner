@@ -47,6 +47,7 @@
           <button type="button" class="today-btn" id="todayBtn" hidden>Today</button>
           <button type="button" class="icon-btn scrub-toggle" id="scrubToggle" aria-label="Show time slider" aria-pressed="false" title="Time slider"><span data-icon="clock"></span></button>
         </div>
+        <div class="seg full step-seg" role="group" aria-label="Step by" id="stepSeg" hidden><button type="button" data-step="day" aria-pressed="true">Day</button><button type="button" data-step="week" aria-pressed="false">Week</button><button type="button" data-step="month" aria-pressed="false">Month</button><button type="button" data-step="year" aria-pressed="false">Year</button></div>
         <div class="scrub">
           <button type="button" class="play" id="playBtn" aria-label="Play"><span data-icon="play"></span></button>
           <input type="range" id="scrub" min="0" max="1000" step="1" value="1000" aria-label="Time">
@@ -158,7 +159,7 @@
       <div class="seg full" role="group" aria-label="Which days" id="dayMode">
         <button type="button" data-dm="week" aria-pressed="true">Last 7 days</button><button type="button" data-dm="all" aria-pressed="false">All</button><button type="button" data-dm="one" aria-pressed="false">Single day</button><button type="button" data-dm="range" aria-pressed="false">Date range</button>
       </div>
-      <div class="field" id="oneField" hidden><div class="field-head"><label for="oneDay">Day</label><button type="button" class="link-btn" id="oneToday">Today</button></div><input type="date" id="oneDay"></div>
+      <div class="field" id="oneField" hidden><div class="field-head"><label for="oneDay" id="oneLabel">Day</label><button type="button" class="link-btn" id="oneToday">Today</button></div><input type="date" id="oneDay"></div>
       <div class="grid2" id="rangeFields" hidden>
         <div class="field"><label for="from">From</label><input type="date" id="from"></div>
         <div class="field"><label for="to">To</label><input type="date" id="to"></div>

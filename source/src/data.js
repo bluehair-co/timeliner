@@ -106,7 +106,7 @@ function lastWeek() {
 function defaultFilters() {
   var wk = lastWeek();
   return {
-    dm: 'week', one: M.maxD, from: wk[0], to: wk[1],
+    dm: 'week', one: M.maxD, unit: 'day', from: wk[0], to: wk[1],
     years: new Set(M.years), months: new Set([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]), dows: new Set([0, 1, 2, 3, 4, 5, 6]),
     h0: 0, h1: 24, modes: new Set(M.modes), countries: new Set(M.countries), guess: 'all', src: 'all'
   };
@@ -129,7 +129,7 @@ function hourOk(h) {
   return F.h0 < F.h1 ? h >= F.h0 && h < F.h1 : h >= F.h0 || h < F.h1;
 }
 function dayOk(d) {
-  if (F.dm === 'one') return d === F.one;
+  if (F.dm === 'one') return F.unit === 'day' ? d === F.one : d >= periodStart(F.one, F.unit) && d <= periodEnd(F.one, F.unit);
   if (F.dm === 'range' || F.dm === 'week') return d >= F.from && d <= F.to;
   return true;
 }
@@ -168,7 +168,7 @@ var applyTimer = 0;
 function changed() { clearTimeout(applyTimer); applyTimer = setTimeout(apply, 30); }
 
 function filterText() {
-  var t = F.dm === 'one' ? niceDate(F.one) : F.dm !== 'all' ? (F.from === F.to ? niceDate(F.from) : niceDate(F.from) + ' – ' + niceDate(F.to)) : 'All time';
+  var t = F.dm === 'one' ? periodLabel(F.one, F.unit) : F.dm !== 'all' ? (F.from === F.to ? niceDate(F.from) : niceDate(F.from) + ' – ' + niceDate(F.to)) : 'All time';
   var k = activeFilters() - (F.dm !== 'all' ? 1 : 0);
   return t + (k ? ' · ' + k + ' filter' + (k > 1 ? 's' : '') : '');
 }
@@ -221,6 +221,9 @@ function syncFilterUI() {
   setPressed('#guessSeg button', function (b) { return b.dataset.g === F.guess; });
   setPressed('#srcSeg button', function (b) { return b.dataset.src === F.src; });
   $('oneField').hidden = F.dm !== 'one';
+  document.querySelector('#dayMode [data-dm="one"]').textContent = 'Single ' + (F.dm === 'one' ? F.unit : 'day');
+  $('oneLabel').textContent = F.unit === 'day' ? 'Day' : 'Any day in the ' + F.unit;
+  setPressed('#stepSeg button', function (b) { return b.dataset.step === F.unit; });
   $('rangeFields').hidden = F.dm !== 'range';
   $('oneDay').value = isoDay(F.one); $('from').value = isoDay(F.from); $('to').value = isoDay(F.to);
   $('h0').value = F.h0; $('h1').value = F.h1;
@@ -248,6 +251,7 @@ $('filtersSheet').addEventListener('click', function (ev) {
     F[q] = new Set(all ? { years: M.years, months: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], dows: [0, 1, 2, 3, 4, 5, 6], modes: M.modes, countries: M.countries }[q] : []);
   } else if (b.dataset.dm) {
     F.dm = b.dataset.dm;
+    if (F.dm === 'one') F.unit = 'day';
     if (F.dm === 'one' && M.navDays.length && M.navDays.indexOf(F.one) < 0) F.one = M.navDays[M.navDays.length - 1];
     if (F.dm === 'week') { var wk = lastWeek(); F.from = wk[0]; F.to = wk[1]; }
   } else if (b.dataset.g) F.guess = b.dataset.g;
@@ -271,7 +275,7 @@ function onDate(id, key) {
   });
 }
 onDate('oneDay', 'one'); onDate('from', 'from'); onDate('to', 'to');
-$('oneToday').addEventListener('click', function () { showDay(todayDay()); });
+$('oneToday').addEventListener('click', function () { showDay(todayDay(), F.unit); });
 $('h0').addEventListener('change', function () { F.h0 = +this.value; changed(); });
 $('h1').addEventListener('change', function () { F.h1 = +this.value; changed(); });
 $('ccSearch').addEventListener('input', function () {
@@ -280,9 +284,9 @@ $('ccSearch').addEventListener('input', function () {
 });
 // Today as a local day number.
 function todayDay() { return Math.floor((Date.now() - new Date().getTimezoneOffset() * 60000) / 864e5); }
-// Show one day, from anywhere in the app.
-function showDay(d) {
-  F.dm = 'one'; F.one = d;
+// Show one day (or the week, month or year holding it), from anywhere in the app.
+function showDay(d, unit) {
+  F.dm = 'one'; F.one = d; F.unit = unit || 'day';
   syncFilterUI();
   apply();
 }

@@ -156,6 +156,29 @@ function dayToDate(d) { return new Date(d * 864e5); }
 function isoDay(d) { return dayToDate(d).toISOString().slice(0, 10); }
 function parseIsoDay(s) { if (!s) return null; var t = Date.parse(s + 'T00:00:00Z'); return isFinite(t) ? Math.floor(t / 864e5) : null; }
 function niceDate(d) { var x = dayToDate(d); return x.getUTCDate() + ' ' + MONTHS[x.getUTCMonth()] + ' ' + x.getUTCFullYear(); }
+// Periods for stepping through the data: the day, Monday-to-Sunday week, month or year holding day d.
+function periodStart(d, u) {
+  if (u === 'week') return d - (((d + 3) % 7) + 7) % 7;
+  if (u === 'day') return d;
+  var x = dayToDate(d);
+  return Math.floor(Date.UTC(x.getUTCFullYear(), u === 'month' ? x.getUTCMonth() : 0, 1) / 864e5);
+}
+function periodEnd(d, u) {
+  if (u === 'day') return d;
+  if (u === 'week') return periodStart(d, u) + 6;
+  var x = dayToDate(d), y = x.getUTCFullYear();
+  return Math.floor((u === 'month' ? Date.UTC(y, x.getUTCMonth() + 1, 1) : Date.UTC(y + 1, 0, 1)) / 864e5) - 1;
+}
+function periodLabel(d, u) {
+  var a = dayToDate(periodStart(d, u)), z = dayToDate(periodEnd(d, u));
+  if (u === 'year') return '' + a.getUTCFullYear();
+  if (u === 'month') return MONTHS_LONG[a.getUTCMonth()] + ' ' + a.getUTCFullYear();
+  if (u === 'week') {
+    var sameY = a.getUTCFullYear() === z.getUTCFullYear(), sameM = sameY && a.getUTCMonth() === z.getUTCMonth();
+    return a.getUTCDate() + (sameM ? '' : ' ' + MONTHS[a.getUTCMonth()]) + (sameY ? '' : ' ' + a.getUTCFullYear()) + ' – ' + niceDate(periodEnd(d, u));
+  }
+  return niceDate(d);
+}
 function longDate(d) { var x = dayToDate(d); return DOW_LONG[x.getUTCDay()] + ', ' + x.getUTCDate() + ' ' + MONTHS_LONG[x.getUTCMonth()] + ' ' + x.getUTCFullYear(); }
 function pad2(n) { return (n < 10 ? '0' : '') + n; }
 // Clock time where the trip happened when the file says the UTC offset, else in this browser's time zone.

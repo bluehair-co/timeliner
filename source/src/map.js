@@ -96,7 +96,7 @@ function renderMapTab() {
     heatDirty = true;
     updateTopbar();
     legend();
-    var key = F.dm + '|' + F.one + '|' + F.from + '|' + F.to;
+    var key = F.dm + '|' + (F.dm === 'one' ? periodStart(F.one, F.unit) + F.unit : '') + '|' + F.from + '|' + F.to;
     if (key !== fitKey) { fitKey = key; fitAll(); }
   }
   if (map) {
@@ -295,7 +295,7 @@ function openTrip(i, fromList) {
     '<dl class="kv" style="margin-top:12px">' + r.rows.map(function (x) { return '<div><dt>' + x[0] + '</dt><dd>' + x[1] + '</dd></div>'; }).join('') + '</dl>' +
     (r.notes.length ? '<p class="fine" style="margin-top:10px">' + r.notes.join(' ') + '</p>' : '') +
     '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:14px">' +
-    (F.dm !== 'one' || tab !== 'map' ? '<button type="button" class="btn" data-act="day" data-i="' + i + '">' + icon('calendar') + 'Show this day on the map</button>' : '') +
+    (F.dm !== 'one' || F.unit !== 'day' || tab !== 'map' ? '<button type="button" class="btn" data-act="day" data-i="' + i + '">' + icon('calendar') + 'Show this day on the map</button>' : '') +
     (tab !== 'timeline' ? '<button type="button" class="btn" data-act="tl" data-i="' + i + '">' + icon('history') + 'Open in Timeline</button>' : '') + '</div>';
   $('tripSheetTitle').textContent = 'Trip';
   openSheet('tripSheet');
@@ -340,18 +340,23 @@ function updateTopbar() {
   $('timeBar').hidden = !n && !one;
   $('dayNav').hidden = !one;
   $('rangeLabel').hidden = one;
+  $('stepSeg').hidden = !one;
   document.querySelector('#timeBar .scrub').hidden = !n || !PREFS.scrub;
   $('scrubToggle').hidden = !n;
-  $('todayBtn').hidden = one && F.one === todayDay();
+  var p0 = one ? periodStart(F.one, F.unit) : 0, p1 = one ? periodEnd(F.one, F.unit) : 0, today = todayDay();
+  $('todayBtn').hidden = one && today >= p0 && today <= p1;
   $('scrubToggle').setAttribute('aria-pressed', PREFS.scrub ? 'true' : 'false');
   $('scrubToggle').setAttribute('aria-label', PREFS.scrub ? 'Hide time slider' : 'Show time slider');
-  var sub = n ? tripsText(n) + ' · ' + dist(total) : 'No trips this day';
+  var sub = n ? tripsText(n) + ' · ' + dist(total) : 'No trips this ' + (one ? F.unit : 'day');
   if (one) {
-    $('dayLabel').textContent = dayLabel(F.one);
+    $('dayLabel').textContent = F.unit === 'day' ? dayLabel(F.one) : periodLabel(F.one, F.unit);
     $('daySub').textContent = sub;
     $('dayPick').value = isoDay(F.one);
-    $('dayPrev').disabled = !M.navDays.length || M.navDays[0] >= F.one;
-    $('dayNext').disabled = !M.navDays.length || M.navDays[M.navDays.length - 1] <= F.one;
+    $('dayPick').setAttribute('aria-label', F.unit === 'day' ? 'Pick a day' : 'Pick a day in the ' + F.unit);
+    $('dayPrev').disabled = !M.navDays.length || M.navDays[0] >= p0;
+    $('dayNext').disabled = !M.navDays.length || M.navDays[M.navDays.length - 1] <= p1;
+    $('dayPrev').setAttribute('aria-label', 'Previous ' + F.unit + ' with trips');
+    $('dayNext').setAttribute('aria-label', 'Next ' + F.unit + ' with trips');
   } else {
     var k = activeFilters() - (F.dm !== 'all' ? 1 : 0);
     $('rangeMain').textContent = F.dm === 'all' ? 'All time' : F.from === F.to ? dayLabel(F.from) : niceDate(F.from) + ' – ' + niceDate(F.to);
@@ -360,7 +365,7 @@ function updateTopbar() {
   if (n) {
     if (one) {
       var o = D.off[sel[0]], offMs = o !== NO_OFF ? o * 60000 : -new Date(F.one * 864e5).getTimezoneOffset() * 60000;
-      T0 = F.one * 864e5 - offMs; T1 = T0 + 864e5;
+      T0 = p0 * 864e5 - offMs; T1 = (p1 + 1) * 864e5 - offMs;
     } else {
       T0 = D.start[sel[0]]; T1 = T0;
       for (i = 0; i < n; i++) if (D.end[sel[i]] > T1) T1 = D.end[sel[i]];
@@ -370,16 +375,23 @@ function updateTopbar() {
   $('speedBtn').textContent = speedText();
   scrubLabel();
 }
+// Steps to the nearest day, week, month or year before or after this one that has trips.
+// It lands on the last day with trips going back and the first going forward.
 function stepDay(dir) {
-  var nd = M.navDays, d = null, k;
-  if (dir < 0) { for (k = nd.length - 1; k >= 0; k--) if (nd[k] < F.one) { d = nd[k]; break; } }
-  else { for (k = 0; k < nd.length; k++) if (nd[k] > F.one) { d = nd[k]; break; } }
-  if (d != null) showDay(d);
+  var nd = M.navDays, d = null, k, a = periodStart(F.one, F.unit), z = periodEnd(F.one, F.unit);
+  if (dir < 0) { for (k = nd.length - 1; k >= 0; k--) if (nd[k] < a) { d = nd[k]; break; } }
+  else { for (k = 0; k < nd.length; k++) if (nd[k] > z) { d = nd[k]; break; } }
+  if (d != null) showDay(d, F.unit);
 }
 $('dayPrev').addEventListener('click', function () { stepDay(-1); });
-$('todayBtn').addEventListener('click', function () { showDay(todayDay()); });
+$('todayBtn').addEventListener('click', function () { showDay(todayDay(), F.dm === 'one' ? F.unit : 'day'); });
 $('dayNext').addEventListener('click', function () { stepDay(1); });
-$('dayPick').addEventListener('change', function () { var d = parseIsoDay(this.value); if (d != null) showDay(d); });
+$('dayPick').addEventListener('change', function () { var d = parseIsoDay(this.value); if (d != null) showDay(d, F.unit); });
+// Switching unit keeps the day you were on, so Day after Month goes back to it.
+$('stepSeg').addEventListener('click', function (ev) {
+  var b = ev.target.closest('[data-step]');
+  if (b && b.dataset.step !== F.unit) showDay(F.one, b.dataset.step);
+});
 $('rangeLabel').addEventListener('click', function () { openSheet('filtersSheet'); });
 $('summaryPill').addEventListener('click', function () { openSheet('filtersSheet'); });
 document.addEventListener('keydown', function (ev) {
@@ -391,9 +403,9 @@ document.addEventListener('keydown', function (ev) {
 function scrubTime() { return T0 + (T1 - T0) * scrubV / 1000; }
 function scrubLabel() {
   if (!sel.length) { $('scrubWhen').textContent = ''; return; }
-  if (scrubV >= 1000 && !playing) { $('scrubWhen').textContent = F.dm === 'one' ? 'Whole day' : 'All'; return; }
+  if (scrubV >= 1000 && !playing) { $('scrubWhen').textContent = F.dm === 'one' ? 'Whole ' + F.unit : 'All'; return; }
   var t = scrubTime(), i = sel[Math.max(0, upper(t) - 1)];
-  $('scrubWhen').textContent = F.dm === 'one' || T1 - T0 <= 2 * 864e5 ? clock(t, D.off[i]) : clock(t, D.off[i], true).split(',')[0];
+  $('scrubWhen').textContent = F.dm === 'one' && F.unit === 'day' || T1 - T0 <= 2 * 864e5 ? clock(t, D.off[i]) : clock(t, D.off[i], true).split(',')[0];
 }
 // How many trips in sel start at or before t.
 function upper(t) {

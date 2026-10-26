@@ -351,3 +351,5 @@ svg text { font-family: var(--font-body); font-size: 11px; fill: var(--muted); }
 .today-btn:hover { background: var(--chip); }
 .field-head { display: flex; align-items: baseline; justify-content: space-between; }
 .link-btn { border: 0; background: none; padding: 2px 0; font: inherit; font-size: 12px; font-weight: 600; color: var(--accent); cursor: pointer; }
+.step-seg { margin-top: 6px; }
+.step-seg button { padding-top: 6px; padding-bottom: 6px; }

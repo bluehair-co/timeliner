@@ -4181,6 +4181,29 @@ function renderRecords() {
   if (bn) h += '<button type="button" class="record" data-day="' + bn + '"><span class="k">' + icon('calendar') + 'Most trips in a day</span><span class="v">' + fmt(byDay[bn].n) + '</span><span class="s">' + longDate(+bn) + '</span></button>';
   $('records').innerHTML = h;
 }
+// Days between records: when you were last seen in a country and next seen in the same
+// one, the days in between count there too (a month between two flights is a month there).
+// Built once from all the data, so a filter's edges don't cut a stay short.
+var ccGaps = null;
+function evDay(ms, off) {
+  if (off !== NO_OFF) return Math.floor((ms + off * 60000) / 864e5);
+  var d = new Date(ms);
+  return Math.floor(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 864e5);
+}
+function countryGaps() {
+  if (ccGaps && ccGaps.D === D) return ccGaps.list;
+  var ev = [], i, k;
+  for (i = 0; i < D.day.length; i++) ev.push([D.start[i], D.day[i], D.cs[i]], [D.end[i], evDay(D.end[i], D.off[i]), D.ce[i]]);
+  for (i = 0; i < D.vs.length; i++) ev.push([D.vs[i], D.vday[i], D.vcc[i]], [D.ve[i], evDay(D.ve[i], D.voff[i]), D.vcc[i]]);
+  ev.sort(function (a, b) { return a[0] - b[0]; });
+  var list = [];   // [country index, first day, last day] of each gap
+  for (k = 1; k < ev.length; k++) {
+    var a = ev[k - 1], b = ev[k];
+    if (a[2] === b[2] && D.ccList[a[2]] && b[1] > a[1] + 1) list.push([a[2], a[1] + 1, b[1] - 1]);
+  }
+  ccGaps = { D: D, list: list };
+  return list;
+}
 function renderCountries() {
   var by = {};
   function add(k, d) {
@@ -4191,8 +4214,19 @@ function renderCountries() {
   }
   for (var j = 0; j < sel.length; j++) { var i = sel[j]; add(D.cs[i], D.day[i]); add(D.ce[i], D.day[i]); }
   for (var v = 0; v < selV.length; v++) add(D.vcc[selV[v]], D.vday[selV[v]]);
+  // Gap days count when they pass the same day filters as trips and stays.
+  // A year with no records at all isn't in the year filter, so 'all years' lets it through.
+  var allCC = F.countries.size === M.countries.length, allY = F.years.size === M.years.length;
+  countryGaps().forEach(function (g) {
+    if (!allCC && !F.countries.has(g[0])) return;
+    for (var d = g[1]; d <= g[2]; d++) {
+      if (!dayOk(d)) continue;
+      var x = dayToDate(d);
+      if ((allY || F.years.has(x.getUTCFullYear())) && F.months.has(x.getUTCMonth()) && F.dows.has(x.getUTCDay())) add(g[0], d);
+    }
+  });
   var list = Object.keys(by).map(function (k) { var c = by[k]; c.n = Object.keys(c.days).length; return c; }).sort(function (a, b) { return b.n - a.n; });
-  $('ccNote').textContent = list.length ? fmt(list.length) + ' countr' + (list.length === 1 ? 'y' : 'ies') + ', by days you were there. Flights count only where they took off and landed.' : '';
+  $('ccNote').textContent = list.length ? fmt(list.length) + ' countr' + (list.length === 1 ? 'y' : 'ies') + ', by days you were there. Days between your records count too when you were in the same country before and after. Flights count only where they took off and landed.' : '';
   var max = list.length ? list[0].n : 1;
   $('ccList').innerHTML = list.length ? list.slice(0, 30).map(function (c) {
     return '<div class="hit-row" style="cursor:default"><span class="flag" aria-hidden="true" style="font-size:22px;width:28px;text-align:center">' + (flag(c.cc) || '·') + '</span>' +

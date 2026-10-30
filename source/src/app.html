@@ -36,18 +36,18 @@
 
     <div class="topbar" id="topbar">
       <button type="button" class="bar summary-pill" id="summaryPill"><span id="summaryMain">All trips</span><span class="sub" id="summarySub"></span></button>
-      <div class="bar" id="timeBar" hidden>
+      <div class="bar" id="timeBar" data-pnav hidden>
         <div class="bar-top">
-        <div class="daynav" id="dayNav" hidden>
-          <button type="button" class="icon-btn" id="dayPrev" aria-label="Previous day with trips"><span data-icon="left"></span></button>
-          <label class="date-btn"><b id="dayLabel"></b><small id="daySub"></small><input type="date" id="dayPick" aria-label="Pick a day"></label>
-          <button type="button" class="icon-btn" id="dayNext" aria-label="Next day with trips"><span data-icon="right"></span></button>
-        </div>
-        <button type="button" class="range-label summary-pill" id="rangeLabel" hidden style="padding:6px 8px 2px"><b id="rangeMain"></b><small id="rangeSub"></small></button>
-          <button type="button" class="today-btn" id="todayBtn" hidden>Today</button>
+          <div class="daynav" data-pn="nav" hidden>
+            <button type="button" class="icon-btn" data-pn="prev" aria-label="Previous day with trips"><span data-icon="left"></span></button>
+            <label class="date-btn"><b data-pn="label"></b><small data-pn="sub"></small><input type="date" data-pn="pick" aria-label="Pick a day"></label>
+            <button type="button" class="icon-btn" data-pn="next" aria-label="Next day with trips"><span data-icon="right"></span></button>
+          </div>
+          <button type="button" class="range-label summary-pill" data-pn="range" data-open-filters hidden><b data-pn="rangeMain"></b><small data-pn="rangeSub"></small></button>
+          <button type="button" class="today-btn" data-pn="today" hidden>Today</button>
           <button type="button" class="icon-btn scrub-toggle" id="scrubToggle" aria-label="Show time slider" aria-pressed="false" title="Time slider"><span data-icon="clock"></span></button>
         </div>
-        <div class="seg full step-seg" role="group" aria-label="Step by" id="stepSeg" hidden><button type="button" data-step="day" aria-pressed="true">Day</button><button type="button" data-step="week" aria-pressed="false">Week</button><button type="button" data-step="month" aria-pressed="false">Month</button><button type="button" data-step="year" aria-pressed="false">Year</button></div>
+        <div class="seg full step-seg" role="group" aria-label="Step by" data-pn="step" hidden><button type="button" data-step="day" aria-pressed="true">Day</button><button type="button" data-step="week" aria-pressed="false">Week</button><button type="button" data-step="month" aria-pressed="false">Month</button><button type="button" data-step="year" aria-pressed="false">Year</button></div>
         <div class="scrub">
           <button type="button" class="play" id="playBtn" aria-label="Play"><span data-icon="play"></span></button>
           <input type="range" id="scrub" min="0" max="1000" step="1" value="1000" aria-label="Time">
@@ -67,7 +67,19 @@
     <div class="page-inner">
       <div class="page-head">
         <h1>Insights</h1>
-        <button type="button" class="filter-pill" data-open-filters><span data-icon="filter"></span><span class="filter-text"></span></button>
+        <div class="bar pnav" data-pnav>
+          <div class="bar-top">
+            <div class="daynav" data-pn="nav" hidden>
+              <button type="button" class="icon-btn" data-pn="prev" aria-label="Previous day with trips"><span data-icon="left"></span></button>
+              <label class="date-btn"><b data-pn="label"></b><small data-pn="sub"></small><input type="date" data-pn="pick" aria-label="Pick a day"></label>
+              <button type="button" class="icon-btn" data-pn="next" aria-label="Next day with trips"><span data-icon="right"></span></button>
+            </div>
+            <button type="button" class="range-label summary-pill" data-pn="range" data-open-filters hidden><b data-pn="rangeMain"></b><small data-pn="rangeSub"></small></button>
+            <button type="button" class="today-btn" data-pn="today" hidden>Today</button>
+            <button type="button" class="icon-btn pnav-filters" data-open-filters aria-label="Filters"><span data-icon="filter"></span><span class="badge" data-pn="badge" hidden></span></button>
+          </div>
+          <div class="seg full step-seg" role="group" aria-label="Step by" data-pn="step" hidden><button type="button" data-step="day" aria-pressed="true">Day</button><button type="button" data-step="week" aria-pressed="false">Week</button><button type="button" data-step="month" aria-pressed="false">Month</button><button type="button" data-step="year" aria-pressed="false">Year</button></div>
+        </div>
       </div>
       <div class="cards">
         <section class="card wide">
@@ -122,8 +134,20 @@
       <div class="page-head">
         <h1>Timeline</h1>
         <div class="tl-actions">
-          <button type="button" class="filter-pill" data-open-filters><span data-icon="filter"></span><span class="filter-text"></span></button>
           <label class="icon-btn tl-jump" title="Jump to date"><span data-icon="calendar"></span><span class="visually-hidden">Jump to date</span><input type="date" id="tlJump"></label>
+        </div>
+        <div class="bar pnav" data-pnav>
+          <div class="bar-top">
+            <div class="daynav" data-pn="nav" hidden>
+              <button type="button" class="icon-btn" data-pn="prev" aria-label="Previous day with trips"><span data-icon="left"></span></button>
+              <label class="date-btn"><b data-pn="label"></b><small data-pn="sub"></small><input type="date" data-pn="pick" aria-label="Pick a day"></label>
+              <button type="button" class="icon-btn" data-pn="next" aria-label="Next day with trips"><span data-icon="right"></span></button>
+            </div>
+            <button type="button" class="range-label summary-pill" data-pn="range" data-open-filters hidden><b data-pn="rangeMain"></b><small data-pn="rangeSub"></small></button>
+            <button type="button" class="today-btn" data-pn="today" hidden>Today</button>
+            <button type="button" class="icon-btn pnav-filters" data-open-filters aria-label="Filters"><span data-icon="filter"></span><span class="badge" data-pn="badge" hidden></span></button>
+          </div>
+          <div class="seg full step-seg" role="group" aria-label="Step by" data-pn="step" hidden><button type="button" data-step="day" aria-pressed="true">Day</button><button type="button" data-step="week" aria-pressed="false">Week</button><button type="button" data-step="month" aria-pressed="false">Month</button><button type="button" data-step="year" aria-pressed="false">Year</button></div>
         </div>
       </div>
     </div>

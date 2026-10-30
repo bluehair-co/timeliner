@@ -331,49 +331,57 @@ var scrubV = 1000, T0 = 0, T1 = 0, playing = false, playRaf = 0, SPEEDS = [1, 2,
 function speedText() { return ({ 0.25: '¼', 0.5: '½' }[PREFS.speed] || PREFS.speed) + '×'; }
 function dayLabel(d) { var x = dayToDate(d); return DOW[x.getUTCDay()] + ' ' + x.getUTCDate() + ' ' + MONTHS[x.getUTCMonth()] + ' ' + x.getUTCFullYear(); }
 function updateTopbar() {
-  var n = sel.length, total = 0, i;
-  for (i = 0; i < n; i++) total += D.km[sel[i]];
-  var one = F.dm === 'one';
+  var n = sel.length, one = F.dm === 'one';
   $('summaryPill').hidden = n > 0 || one;
   $('summaryMain').textContent = 'No trips match your filters';
   $('summarySub').textContent = 'Change filters';
   $('timeBar').hidden = !n && !one;
-  $('dayNav').hidden = !one;
-  $('rangeLabel').hidden = one;
-  $('stepSeg').hidden = !one;
   document.querySelector('#timeBar .scrub').hidden = !n || !PREFS.scrub;
   $('scrubToggle').hidden = !n;
-  var p0 = one ? periodStart(F.one, F.unit) : 0, p1 = one ? periodEnd(F.one, F.unit) : 0, today = todayDay();
-  $('todayBtn').hidden = one && today >= p0 && today <= p1;
   $('scrubToggle').setAttribute('aria-pressed', PREFS.scrub ? 'true' : 'false');
   $('scrubToggle').setAttribute('aria-label', PREFS.scrub ? 'Hide time slider' : 'Show time slider');
-  var sub = n ? tripsText(n) + ' · ' + dist(total) : 'No trips this ' + (one ? F.unit : 'day');
-  if (one) {
-    $('dayLabel').textContent = F.unit === 'day' ? dayLabel(F.one) : periodLabel(F.one, F.unit);
-    $('daySub').textContent = sub;
-    $('dayPick').value = isoDay(F.one);
-    $('dayPick').setAttribute('aria-label', F.unit === 'day' ? 'Pick a day' : 'Pick a day in the ' + F.unit);
-    $('dayPrev').disabled = !M.navDays.length || M.navDays[0] >= p0;
-    $('dayNext').disabled = !M.navDays.length || M.navDays[M.navDays.length - 1] <= p1;
-    $('dayPrev').setAttribute('aria-label', 'Previous ' + F.unit + ' with trips');
-    $('dayNext').setAttribute('aria-label', 'Next ' + F.unit + ' with trips');
-  } else {
-    var k = activeFilters() - (F.dm !== 'all' ? 1 : 0);
-    $('rangeMain').textContent = F.dm === 'all' ? 'All time' : F.from === F.to ? dayLabel(F.from) : niceDate(F.from) + ' – ' + niceDate(F.to);
-    $('rangeSub').textContent = sub + (k ? ' · ' + k + ' filter' + (k > 1 ? 's' : '') : '');
-  }
   if (n) {
     if (one) {
       var o = D.off[sel[0]], offMs = o !== NO_OFF ? o * 60000 : -new Date(F.one * 864e5).getTimezoneOffset() * 60000;
-      T0 = p0 * 864e5 - offMs; T1 = (p1 + 1) * 864e5 - offMs;
+      T0 = periodStart(F.one, F.unit) * 864e5 - offMs; T1 = (periodEnd(F.one, F.unit) + 1) * 864e5 - offMs;
     } else {
       T0 = D.start[sel[0]]; T1 = T0;
-      for (i = 0; i < n; i++) if (D.end[sel[i]] > T1) T1 = D.end[sel[i]];
+      for (var i = 0; i < n; i++) if (D.end[sel[i]] > T1) T1 = D.end[sel[i]];
       if (T1 <= T0) T1 = T0 + 1;
     }
   }
   $('speedBtn').textContent = speedText();
   scrubLabel();
+}
+// The period navigator at the top of the Map, Insights and Timeline. They share one period
+// (the filters' days), so stepping on any tab moves them all.
+function syncPeriodNavs() {
+  var n = sel.length, total = 0, i, one = F.dm === 'one', nd = M.navDays;
+  for (i = 0; i < n; i++) total += D.km[sel[i]];
+  var p0 = one ? periodStart(F.one, F.unit) : 0, p1 = one ? periodEnd(F.one, F.unit) : 0, today = todayDay();
+  var sub = n ? tripsText(n) + ' · ' + dist(total) : one ? 'No trips this ' + F.unit : 'No trips';
+  var k = activeFilters(), kr = k - (F.dm !== 'all' ? 1 : 0);
+  document.querySelectorAll('[data-pnav]').forEach(function (bar) {
+    function q(name) { return bar.querySelector('[data-pn="' + name + '"]'); }
+    q('nav').hidden = !one;
+    q('range').hidden = one;
+    q('step').hidden = !one;
+    q('today').hidden = one && today >= p0 && today <= p1;
+    if (q('badge')) { q('badge').hidden = !k; q('badge').textContent = k; }
+    if (one) {
+      q('label').textContent = F.unit === 'day' ? dayLabel(F.one) : periodLabel(F.one, F.unit);
+      q('sub').textContent = sub;
+      q('pick').value = isoDay(F.one);
+      q('pick').setAttribute('aria-label', F.unit === 'day' ? 'Pick a day' : 'Pick a day in the ' + F.unit);
+      q('prev').disabled = !nd.length || nd[0] >= p0;
+      q('next').disabled = !nd.length || nd[nd.length - 1] <= p1;
+      q('prev').setAttribute('aria-label', 'Previous ' + F.unit + ' with trips');
+      q('next').setAttribute('aria-label', 'Next ' + F.unit + ' with trips');
+    } else {
+      q('rangeMain').textContent = F.dm === 'all' ? 'All time' : F.from === F.to ? dayLabel(F.from) : niceDate(F.from) + ' – ' + niceDate(F.to);
+      q('rangeSub').textContent = sub + (kr ? ' · ' + kr + ' filter' + (kr > 1 ? 's' : '') : '');
+    }
+  });
 }
 // Steps to the nearest day, week, month or year before or after this one that has trips.
 // It lands on the last day with trips going back and the first going forward.
@@ -383,19 +391,21 @@ function stepDay(dir) {
   else { for (k = 0; k < nd.length; k++) if (nd[k] > z) { d = nd[k]; break; } }
   if (d != null) showDay(d, F.unit);
 }
-$('dayPrev').addEventListener('click', function () { stepDay(-1); });
-$('todayBtn').addEventListener('click', function () { showDay(todayDay(), F.dm === 'one' ? F.unit : 'day'); });
-$('dayNext').addEventListener('click', function () { stepDay(1); });
-$('dayPick').addEventListener('change', function () { var d = parseIsoDay(this.value); if (d != null) showDay(d, F.unit); });
-// Switching unit keeps the day you were on, so Day after Month goes back to it.
-$('stepSeg').addEventListener('click', function (ev) {
-  var b = ev.target.closest('[data-step]');
-  if (b && b.dataset.step !== F.unit) showDay(F.one, b.dataset.step);
+document.querySelectorAll('[data-pnav]').forEach(function (bar) {
+  function q(name) { return bar.querySelector('[data-pn="' + name + '"]'); }
+  q('prev').addEventListener('click', function () { stepDay(-1); });
+  q('next').addEventListener('click', function () { stepDay(1); });
+  q('today').addEventListener('click', function () { showDay(todayDay(), F.dm === 'one' ? F.unit : 'day'); });
+  q('pick').addEventListener('change', function () { var d = parseIsoDay(this.value); if (d != null) showDay(d, F.unit); });
+  // Switching unit keeps the day you were on, so Day after Month goes back to it.
+  q('step').addEventListener('click', function (ev) {
+    var b = ev.target.closest('[data-step]');
+    if (b && b.dataset.step !== F.unit) showDay(F.one, b.dataset.step);
+  });
 });
-$('rangeLabel').addEventListener('click', function () { openSheet('filtersSheet'); });
 $('summaryPill').addEventListener('click', function () { openSheet('filtersSheet'); });
 document.addEventListener('keydown', function (ev) {
-  if (tab !== 'map' || F == null || F.dm !== 'one' || openId || /INPUT|SELECT|TEXTAREA/.test(ev.target.tagName)) return;
+  if (F == null || F.dm !== 'one' || openId || /INPUT|SELECT|TEXTAREA/.test(ev.target.tagName)) return;
   if (ev.key === 'ArrowLeft') stepDay(-1);
   if (ev.key === 'ArrowRight') stepDay(1);
 });

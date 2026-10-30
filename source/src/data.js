@@ -162,6 +162,7 @@ function apply() {
   selV = Int32Array.from(outV);
   dirty.map = dirty.insights = dirty.timeline = true;
   syncFilterUI();
+  syncPeriodNavs();
   renderTab();
 }
 var applyTimer = 0;
@@ -203,7 +204,8 @@ function buildFilterUI() {
   for (i = 1; i <= 24; i++) h1 += '<option value="' + i + '">' + pad2(i % 24) + ':00' + (i === 24 ? ' (midnight)' : '') + '</option>';
   $('h0').innerHTML = h0; $('h1').innerHTML = h1;
   var lo = isoDay(M.minD), hi = isoDay(M.maxD);
-  ['oneDay', 'from', 'to', 'dayPick', 'tlJump'].forEach(function (id) { $(id).min = lo; $(id).max = hi; });
+  ['oneDay', 'from', 'to', 'tlJump'].forEach(function (id) { $(id).min = lo; $(id).max = hi; });
+  document.querySelectorAll('[data-pn="pick"]').forEach(function (e) { e.min = lo; e.max = hi; });
 }
 function setPressed(sel_, fn) {
   document.querySelectorAll(sel_).forEach(function (b) { b.setAttribute('aria-pressed', fn(b) ? 'true' : 'false'); });
@@ -223,14 +225,12 @@ function syncFilterUI() {
   $('oneField').hidden = F.dm !== 'one';
   document.querySelector('#dayMode [data-dm="one"]').textContent = 'Single ' + (F.dm === 'one' ? F.unit : 'day');
   $('oneLabel').textContent = F.unit === 'day' ? 'Day' : 'Any day in the ' + F.unit;
-  setPressed('#stepSeg button', function (b) { return b.dataset.step === F.unit; });
+  setPressed('[data-pn="step"] button', function (b) { return b.dataset.step === F.unit; });
   $('rangeFields').hidden = F.dm !== 'range';
   $('oneDay').value = isoDay(F.one); $('from').value = isoDay(F.from); $('to').value = isoDay(F.to);
   $('h0').value = F.h0; $('h1').value = F.h1;
   var k = activeFilters();
   $('filterBadge').hidden = !k; $('filterBadge').textContent = k;
-  var txt = filterText() + ' · ' + tripsText(sel.length);
-  document.querySelectorAll('.filter-pill .filter-text').forEach(function (e) { e.textContent = txt; });
 }
 
 $('filtersSheet').addEventListener('click', function (ev) {

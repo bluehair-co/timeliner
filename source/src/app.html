@@ -243,6 +243,9 @@
         <div class="seg full" role="group" aria-label="Heatmap shows" id="heatSrc">
           <button type="button" data-src="moves" aria-pressed="true">Where I travelled</button><button type="button" data-src="stays" aria-pressed="false">Where I stayed</button>
         </div>
+        <div class="seg full" role="group" aria-label="Heatmap based on" id="heatBy">
+          <button type="button" data-by="points" aria-pressed="false">GPS points</button><button type="button" data-by="paths" aria-pressed="false">Paths</button><button type="button" data-by="time" aria-pressed="true">Time spent</button>
+        </div>
         <div class="slider-row"><label for="heatSize">Dot size</label><input type="range" id="heatSize" min="4" max="40" step="1" value="14"></div>
         <div class="slider-row"><label for="heatGain">Intensity</label><input type="range" id="heatGain" min="0" max="100" step="1" value="50"></div>
         <p class="fine" id="heatNote"></p>

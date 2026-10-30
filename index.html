@@ -97,6 +97,7 @@ svg.stroke { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: 
 .seg button + button { border-left: 1px solid var(--line); }
 .seg button[aria-pressed="true"] { background: var(--chip-on-bg); color: var(--chip-on-fg); }
 .seg.full { display: flex; width: 100%; }
+.seg button[disabled] { opacity: .4; cursor: default; }
 .seg.full button { flex: 1; }
 .quick { display: flex; gap: 2px; }
 .quick button { font-size: 12px; color: var(--accent); background: none; border: 0; padding: 4px 8px; border-radius: 6px; cursor: pointer; }
@@ -618,6 +619,9 @@ svg text { font-family: var(--font-body); font-size: 11px; fill: var(--muted); }
       <div id="heatOpts" hidden style="display:flex;flex-direction:column;gap:12px;padding:4px 0 12px">
         <div class="seg full" role="group" aria-label="Heatmap shows" id="heatSrc">
           <button type="button" data-src="moves" aria-pressed="true">Where I travelled</button><button type="button" data-src="stays" aria-pressed="false">Where I stayed</button>
+        </div>
+        <div class="seg full" role="group" aria-label="Heatmap based on" id="heatBy">
+          <button type="button" data-by="points" aria-pressed="false">GPS points</button><button type="button" data-by="paths" aria-pressed="false">Paths</button><button type="button" data-by="time" aria-pressed="true">Time spent</button>
         </div>
         <div class="slider-row"><label for="heatSize">Dot size</label><input type="range" id="heatSize" min="4" max="40" step="1" value="14"></div>
         <div class="slider-row"><label for="heatGain">Intensity</label><input type="range" id="heatGain" min="0" max="100" step="1" value="50"></div>
@@ -1720,7 +1724,7 @@ function badge(m, small, strava) { return '<span class="mode-badge' + (small ? '
 var PREFS_KEY = 'timeliner.prefs';
 var PREFS = {
   unit: 'km', theme: 'system', proj: 'merc', paths: true, heat: false, cc: false,
-  heatSrc: 'moves', heatSize: 14, heatGain: 50, splitM: 'km', timeM: 'km', timeU: 'year', speed: 1,
+  heatSrc: 'moves', heatBy: 'time', heatSize: 14, heatGain: 50, splitM: 'km', timeM: 'km', timeU: 'year', speed: 1,
   // The time slider starts hidden on phones.
   scrub: !window.matchMedia('(pointer: coarse)').matches && window.matchMedia('(min-width: 960px)').matches
 };
@@ -3269,7 +3273,7 @@ function legend() {
   var seen = {};
   for (var k = 0; k < sel.length; k++) seen[groupOf(modeOf(sel[k])).key] = 1;
   var h = PREFS.paths ? GROUPS.filter(function (g) { return seen[g.key]; }).map(function (g) { return '<span><i style="background:' + g.color + '"></i>' + g.label + '</span>'; }).join('') : '';
-  if (PREFS.heat) h += '<span>' + (PREFS.heatSrc === 'stays' ? 'Time stayed' : 'Time travelled') + ' <i class="heat-scale" style="background:linear-gradient(90deg,' + heatStops().join(',') + ')"></i></span>';
+  if (PREFS.heat) h += '<span>' + heatLabel() + ' <i class="heat-scale" style="background:linear-gradient(90deg,' + heatStops().join(',') + ')"></i></span>';
   if (PREFS.cc) h += '<span><i style="background:var(--accent);opacity:.5;height:10px"></i>Countries visited</span>';
   $('mapLegend').innerHTML = h;
   $('mapLegend').hidden = !h || !sel.length && !selV.length;
@@ -3324,35 +3328,56 @@ function palette() {
   heatPalette = x.getImageData(0, 0, 256, 1).data; heatPalDark = dark;
   return heatPalette;
 }
+// What the heatmap counts: GPS points (each one counts once), paths (how many trips
+// passed through an area) or time spent. Stays have no paths, so they fall back to time.
+function heatBy() { return PREFS.heatSrc === 'stays' && PREFS.heatBy === 'paths' ? 'time' : PREFS.heatBy; }
+function heatLabel() {
+  var by = heatBy();
+  if (PREFS.heatSrc === 'stays') return by === 'points' ? 'Visits' : 'Time stayed';
+  return by === 'points' ? 'GPS points' : by === 'paths' ? 'Trips through' : 'Time travelled';
+}
 function heatPoints() {
-  if (heatData && heatData.ver === selVer() + PREFS.heatSrc) return heatData;
-  var lat = [], lng = [], w = [], note = '', i, j, k;
+  var by = heatBy(), ver = selVer() + PREFS.heatSrc + by;
+  if (heatData && heatData.ver === ver) return heatData;
+  // link[k] = 1 when point k continues the line from point k-1 (paths only); trip[k] keeps
+  // each trip from counting twice in the same cell.
+  var lat = [], lng = [], w = [], link = [], trip = [], note = '', i, j, k;
   if (PREFS.heatSrc === 'stays') {
     if (selV.length) {
       for (k = 0; k < selV.length; k++) {
         var v = selV[k], hrs = (D.ve[v] - D.vs[v]) / 36e5;
-        lat.push(D.vll[2 * v]); lng.push(D.vll[2 * v + 1]); w.push(Math.sqrt(Math.min(hrs, 72)));
+        lat.push(D.vll[2 * v]); lng.push(D.vll[2 * v + 1]); w.push(by === 'points' ? 1 : Math.sqrt(Math.min(hrs, 72)));
       }
-      note = 'Places you stayed, weighted by how long you were there.';
+      note = by === 'points' ? 'Places you stayed, each visit counting once.' : 'Places you stayed, weighted by how long you were there.';
     } else {
       for (k = 0; k < sel.length; k++) { i = sel[k]; lat.push(D.to[2 * i]); lng.push(D.to[2 * i + 1]); w.push(1); }
       note = 'This file has no stays, so the heatmap shows where your trips ended.';
     }
+    if (PREFS.heatBy === 'paths') note += ' Stays have no paths, so this uses time spent.';
   } else {
     for (k = 0; k < sel.length; k++) {
       i = sel[k];
       var o0 = D.pathOff[i], o1 = D.pathOff[i + 1];
       if (modeOf(i) !== 'FLYING' && o1 - o0 >= 2) {
-        // Weight each GPS point by the time until the next one, so dense trails don't dominate.
         for (j = o0; j < o1; j++) {
-          var dt = j + 1 < o1 ? D.pathT[j + 1] - D.pathT[j] : 0;
-          lat.push(D.pathPts[2 * j]); lng.push(D.pathPts[2 * j + 1]); w.push(Math.max(0.05, Math.min(10, dt / 60)));
+          lat.push(D.pathPts[2 * j]); lng.push(D.pathPts[2 * j + 1]); trip.push(k);
+          // Don't draw a line the long way round across the date line.
+          link.push(j > o0 && Math.abs(D.pathPts[2 * j + 1] - D.pathPts[2 * j - 1]) < 180 ? 1 : 0);
+          if (by === 'time') {
+            // Weight each GPS point by the time until the next one, so dense trails don't dominate.
+            var dt = j + 1 < o1 ? D.pathT[j + 1] - D.pathT[j] : 0;
+            w.push(Math.max(0.05, Math.min(10, dt / 60)));
+          } else w.push(1);
         }
       } else {
-        lat.push(D.from[2 * i], D.to[2 * i]); lng.push(D.from[2 * i + 1], D.to[2 * i + 1]); w.push(0.5, 0.5);
+        lat.push(D.from[2 * i], D.to[2 * i]); lng.push(D.from[2 * i + 1], D.to[2 * i + 1]);
+        w.push(by === 'time' ? 0.5 : 1, by === 'time' ? 0.5 : 1); link.push(0, 0); trip.push(k, k);
       }
     }
-    note = 'Where you travelled, by the time spent moving along each GPS trail. Flights count only where they took off and landed.';
+    note = by === 'points' ? 'Where you travelled, with every GPS point counting once, so places with dense trails stand out.'
+      : by === 'paths' ? 'Where you travelled, by how many trips went along each route.'
+      : 'Where you travelled, by the time spent moving along each GPS trail.';
+    note += ' Flights count only where they took off and landed.';
   }
   var n = lat.length, X = new Float64Array(n), Y = new Float64Array(n), W = Float32Array.from(w), r = Math.PI / 180;
   for (k = 0; k < n; k++) {
@@ -3361,7 +3386,8 @@ function heatPoints() {
     Y[k] = (1 - Math.log(Math.tan(la * r) + 1 / Math.cos(la * r)) / Math.PI) / 2;
     if (!isFinite(X[k]) || !isFinite(Y[k])) W[k] = 0;
   }
-  heatData = { ver: selVer() + PREFS.heatSrc, x: X, y: Y, w: W, lat: lat, lng: lng, note: note };
+  heatData = { ver: ver, x: X, y: Y, w: W, lat: lat, lng: lng, note: note,
+    link: by === 'paths' ? Uint8Array.from(link) : null, trip: by === 'paths' ? Int32Array.from(trip) : null };
   $('heatNote').textContent = note;
   return heatData;
 }
@@ -3374,11 +3400,13 @@ function sprite(rad) {
   x.fillStyle = g; x.fillRect(0, 0, rad * 2, rad * 2);
   return (spriteCache[rad] = c);
 }
-// Paints the heatmap onto ctx (w × h CSS pixels at ratio dpr). xy(k) gives a point's screen position or null.
-function paintHeat(ctx, w, h, dpr, n, weight, xy) {
+// Paints the heatmap H onto ctx (w × h CSS pixels at ratio dpr). xy(k) gives a point's screen position or null.
+function paintHeat(ctx, w, h, dpr, H, xy) {
   var rad = Math.round(PREFS.heatSize * dpr), cell = Math.max(2, Math.round(rad / 3)), pad = rad;
   var gw = Math.ceil((w * dpr + 2 * pad) / cell), gh = Math.ceil((h * dpr + 2 * pad) / cell), grid = new Float32Array(gw * gh), k;
-  for (k = 0; k < n; k++) {
+  var n = H.w.length, weight = H.w;
+  if (H.link) paintPaths(grid, gw, gh, H, function (k) { var p = xy(k); return p && [(p[0] * dpr + pad) / cell, (p[1] * dpr + pad) / cell]; });
+  else for (k = 0; k < n; k++) {
     var wk = weight[k];
     if (!wk) continue;
     var p = xy(k);
@@ -3410,6 +3438,37 @@ function paintHeat(ctx, w, h, dpr, n, weight, xy) {
   x.putImageData(img, 0, 0);
   ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 0.88; ctx.drawImage(c, 0, 0); ctx.restore();
 }
+// Paths: walks each trip's line through the grid (g(k) gives a point in grid cells) and
+// adds one to every cell it passes, at most once per trip.
+function paintPaths(grid, gw, gh, H, g) {
+  var stamp = new Int32Array(gw * gh).fill(-1), prev = null;
+  function mark(x, y, t) {
+    var cx = Math.floor(x), cy = Math.floor(y);
+    if (cx < 0 || cy < 0 || cx >= gw || cy >= gh) return;
+    var c = cy * gw + cx;
+    if (stamp[c] !== t) { stamp[c] = t; grid[c] += 1; }
+  }
+  for (var k = 0; k < H.w.length; k++) {
+    var p = H.w[k] ? g(k) : null, t = H.trip[k];
+    if (!p) { prev = null; continue; }
+    if (prev && H.link[k]) {
+      // Clip the segment to the grid (Liang–Barsky), then step one cell at a time.
+      var x0 = prev[0], y0 = prev[1], dx = p[0] - x0, dy = p[1] - y0, t0 = 0, t1 = 1;
+      var cl = [[-dx, x0], [dx, gw - x0], [-dy, y0], [dy, gh - y0]];
+      for (var e = 0; e < 4 && t0 <= t1; e++) {
+        var pp = cl[e][0], qq = cl[e][1];
+        if (pp === 0) { if (qq < 0) t1 = -1; }
+        else if (pp < 0) t0 = Math.max(t0, qq / pp);
+        else t1 = Math.min(t1, qq / pp);
+      }
+      if (t0 <= t1) {
+        var steps = Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) * (t1 - t0)) + 1;
+        for (var s = 0; s <= steps; s++) { var f = t0 + (t1 - t0) * s / steps; mark(x0 + dx * f, y0 + dy * f, t); }
+      }
+    } else mark(p[0], p[1], t);
+    prev = p;
+  }
+}
 var HeatLayer = window.L ? L.Layer.extend({
   onAdd: function (m) {
     this._c = L.DomUtil.create('canvas', 'heat-canvas');
@@ -3440,7 +3499,7 @@ var HeatLayer = window.L ? L.Layer.extend({
     var x0 = Math.floor((-ox) / ws), x1 = Math.floor((size.x - ox) / ws);
     for (var wcopy = x0; wcopy <= x1; wcopy++) {
       var shift = ox + wcopy * ws;
-      paintHeat(ctx, size.x, size.y, dpr, H.w.length, H.w, function (k) { return [H.x[k] * ws + shift, H.y[k] * ws + oy]; });
+      paintHeat(ctx, size.x, size.y, dpr, H, function (k) { return [H.x[k] * ws + shift, H.y[k] * ws + oy]; });
     }
   }
 }) : null;
@@ -3449,6 +3508,8 @@ var HeatLayer = window.L ? L.Layer.extend({
 function syncLayersUI() {
   setPressed('#projSeg button', function (b) { return b.dataset.proj === PREFS.proj; });
   setPressed('#heatSrc button', function (b) { return b.dataset.src === PREFS.heatSrc; });
+  setPressed('#heatBy button', function (b) { return b.dataset.by === heatBy(); });
+  document.querySelector('#heatBy [data-by="paths"]').disabled = PREFS.heatSrc === 'stays';
   $('layPaths').checked = PREFS.paths; $('layHeat').checked = PREFS.heat; $('layCC').checked = PREFS.cc;
   $('heatOpts').hidden = !PREFS.heat;
   $('heatSize').value = PREFS.heatSize; $('heatGain').value = PREFS.heatGain;
@@ -3465,6 +3526,7 @@ $('layPaths').addEventListener('change', function () { PREFS.paths = this.checke
 $('layHeat').addEventListener('change', function () { PREFS.heat = this.checked; layersChanged(); });
 $('layCC').addEventListener('change', function () { PREFS.cc = this.checked; layersChanged(); });
 $('heatSrc').addEventListener('click', function (ev) { var b = ev.target.closest('button[data-src]'); if (b) { PREFS.heatSrc = b.dataset.src; layersChanged(); } });
+$('heatBy').addEventListener('click', function (ev) { var b = ev.target.closest('button[data-by]'); if (b && !b.disabled) { PREFS.heatBy = b.dataset.by; layersChanged(); } });
 var heatTimer = 0;
 ['heatSize', 'heatGain'].forEach(function (id) {
   $(id).addEventListener('input', function () {
@@ -3693,7 +3755,7 @@ function paintProj(fast) {
   ctx.strokeStyle = cssVar('--line'); ctx.lineWidth = 1; ctx.stroke();
   if (PREFS.heat && !fast) {
     var H = heatPoints(), pr = P.proj, globe = PREFS.proj === 'globe', ctr = [P.gc[0], P.gc[1]];
-    paintHeat(ctx, w, h, dpr, H.w.length, H.w, function (k) {
+    paintHeat(ctx, w, h, dpr, H, function (k) {
       var g = [H.lng[k], H.lat[k]];
       if (globe && d3.geoDistance(g, ctr) > Math.PI / 2) return null;
       var xy = pr(g);

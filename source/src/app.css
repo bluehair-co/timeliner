@@ -96,8 +96,6 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .page { position: absolute; inset: 0; }
 .scroll-page { overflow-y: auto; overscroll-behavior: contain; padding: calc(16px + var(--safe-t)) 16px calc(var(--dock-h) + var(--dock-gap) + 28px + var(--safe-b)); }
 .page-inner { max-width: 1080px; margin: 0 auto; }
-.page-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
-.page-head h1 { font-family: var(--font-display); font-weight: 800; font-size: 28px; letter-spacing: -.02em; margin: 0; line-height: 1.1; }
 
 /* Dock: compact and centred, like the Mac dock. */
 .dock { position: fixed; z-index: 30; left: 50%; bottom: calc(var(--dock-gap) + var(--safe-b)); transform: translateX(-50%); display: flex; gap: 4px; padding: 6px; border-radius: 22px; background: var(--glass); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border: 1px solid var(--line); box-shadow: var(--shadow); }
@@ -264,11 +262,7 @@ svg text { font-family: var(--font-body); font-size: 11px; fill: var(--muted); }
 
 /* ---------- timeline ---------- */
 #timelinePage { display: flex; flex-direction: column; }
-.tl-head { padding: calc(16px + var(--safe-t)) 16px 10px; }
-.tl-head .page-head { margin-bottom: 0; max-width: 760px; margin-inline: auto; }
-.tl-actions { display: flex; align-items: center; gap: 8px; }
-.tl-jump { position: relative; }
-.tl-jump input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; padding: 0; border: 0; }
+.tl-head { padding: calc(12px + var(--safe-t)) 12px 10px; }
 .tl-map-wrap { position: relative; flex: 0 0 44%; border-block: 1px solid var(--line); }
 #tlMap { position: absolute; inset: 0; }
 .tl-map-close { position: absolute; z-index: 500; top: 10px; right: 10px; width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--line); background: var(--glass); box-shadow: var(--shadow); display: flex; align-items: center; justify-content: center; cursor: pointer; }
@@ -350,9 +344,10 @@ svg text { font-family: var(--font-body); font-size: 11px; fill: var(--muted); }
 .link-btn { border: 0; background: none; padding: 2px 0; font: inherit; font-size: 12px; font-weight: 600; color: var(--accent); cursor: pointer; }
 .step-seg { margin-top: 6px; }
 .step-seg button { padding-top: 6px; padding-bottom: 6px; }
-/* The same period navigator on Insights and Timeline, beside the page title. */
-.page-head .pnav { flex: 1 1 340px; max-width: 560px; box-shadow: none; }
-.tl-head .page-head .pnav { order: 3; }
+/* The same period navigator on Insights and Timeline, in the same place and size as on the map,
+   so switching tabs leaves it where it was. On Insights it stays at the top while the cards scroll
+   (a sticky top counts from inside the page padding, hence -4px for 12px from the top). */
+.pnav { width: min(560px, 100%); margin-inline: auto; }
+#insightsPage .pnav { position: sticky; z-index: 5; top: -4px; margin-top: -4px; margin-bottom: 14px; margin-inline: max(-4px, calc((100% - 560px) / 2)); width: auto; max-width: 560px; }
 .pnav-filters { position: relative; flex: none; }
 .pnav-filters .badge { position: absolute; top: 0; right: 0; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px; background: var(--accent); color: var(--accent-fg); font-size: 11px; font-weight: 600; display: flex; align-items: center; justify-content: center; }
-@media (max-width: 600px) { .page-head .pnav { flex-basis: 100%; max-width: none; } }

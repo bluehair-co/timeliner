@@ -204,7 +204,7 @@ function buildFilterUI() {
   for (i = 1; i <= 24; i++) h1 += '<option value="' + i + '">' + pad2(i % 24) + ':00' + (i === 24 ? ' (midnight)' : '') + '</option>';
   $('h0').innerHTML = h0; $('h1').innerHTML = h1;
   var lo = isoDay(M.minD), hi = isoDay(M.maxD);
-  ['oneDay', 'from', 'to', 'tlJump'].forEach(function (id) { $(id).min = lo; $(id).max = hi; });
+  ['oneDay', 'from', 'to'].forEach(function (id) { $(id).min = lo; $(id).max = hi; });
   document.querySelectorAll('[data-pn="pick"]').forEach(function (e) { e.min = lo; e.max = hi; });
 }
 function setPressed(sel_, fn) {

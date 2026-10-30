@@ -332,6 +332,20 @@ function countryGaps() {
   ccGaps = { D: D, list: list };
   return list;
 }
+// Calls add(country index, day) for each gap day up to day `last` that passes the same day
+// filters as trips and stays. A year with no records at all isn't in the year filter, so
+// 'all years' lets it through.
+function gapDays(last, add) {
+  var allCC = F.countries.size === M.countries.length, allY = F.years.size === M.years.length;
+  countryGaps().forEach(function (g) {
+    if (!allCC && !F.countries.has(g[0])) return;
+    for (var d = g[1]; d <= Math.min(g[2], last); d++) {
+      if (!dayOk(d)) continue;
+      var x = dayToDate(d);
+      if ((allY || F.years.has(x.getUTCFullYear())) && F.months.has(x.getUTCMonth()) && F.dows.has(x.getUTCDay())) add(g[0], d);
+    }
+  });
+}
 function renderCountries() {
   var by = {};
   function add(k, d) {
@@ -342,17 +356,7 @@ function renderCountries() {
   }
   for (var j = 0; j < sel.length; j++) { var i = sel[j]; add(D.cs[i], D.day[i]); add(D.ce[i], D.day[i]); }
   for (var v = 0; v < selV.length; v++) add(D.vcc[selV[v]], D.vday[selV[v]]);
-  // Gap days count when they pass the same day filters as trips and stays.
-  // A year with no records at all isn't in the year filter, so 'all years' lets it through.
-  var allCC = F.countries.size === M.countries.length, allY = F.years.size === M.years.length;
-  countryGaps().forEach(function (g) {
-    if (!allCC && !F.countries.has(g[0])) return;
-    for (var d = g[1]; d <= g[2]; d++) {
-      if (!dayOk(d)) continue;
-      var x = dayToDate(d);
-      if ((allY || F.years.has(x.getUTCFullYear())) && F.months.has(x.getUTCMonth()) && F.dows.has(x.getUTCDay())) add(g[0], d);
-    }
-  });
+  gapDays(Infinity, add);
   var list = Object.keys(by).map(function (k) { var c = by[k]; c.n = Object.keys(c.days).length; return c; }).sort(function (a, b) { return b.n - a.n; });
   $('ccNote').textContent = list.length ? fmt(list.length) + ' countr' + (list.length === 1 ? 'y' : 'ies') + ', by days you were there. Days between your records count too when you were in the same country before and after. Flights count only where they took off and landed.' : '';
   var max = list.length ? list[0].n : 1;

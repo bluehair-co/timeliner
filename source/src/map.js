@@ -549,13 +549,15 @@ function ccReach() {
   var t = scrubTime(), lo = 0, hi = selV.length;
   while (lo < hi) { var mid = (lo + hi) >> 1; if (D.vs[selV[mid]] <= t) lo = mid + 1; else hi = mid; }
   var nb = visibleB, done = nb && D.end[sel[nb - 1]] <= t;
-  return { nb: nb, nv: lo, t: t, key: nb + ':' + lo + ':' + (done ? 1 : 0) };
+  return { nb: nb, nv: lo, t: t, key: nb + ':' + lo + ':' + (done ? 1 : 0) + ':' + evDay(t, NO_OFF) };
 }
 function visitedCountries() {
   var by = {}, r = ccReach();
   function add(k, d) { var c = by[k] || (by[k] = {}); c[d] = 1; }
   for (var j = 0; j < r.nb; j++) { var i = sel[j]; add(D.cs[i], D.day[i]); if (D.end[i] <= r.t) add(D.ce[i], D.day[i]); }
   for (var v = 0; v < r.nv; v++) add(D.vcc[selV[v]], D.vday[selV[v]]);
+  // Days between records count too, as in Insights; with the slider back in time, only up to then.
+  gapDays(isFinite(r.t) ? evDay(r.t, NO_OFF) - 1 : Infinity, add);
   return Object.keys(by).map(function (k) { return { cc: D.ccList[k], days: Object.keys(by[k]).length }; }).filter(function (c) { return c.cc; });
 }
 function buildCC() {

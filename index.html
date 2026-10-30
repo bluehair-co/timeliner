@@ -118,9 +118,6 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .page-inner { max-width: 1080px; margin: 0 auto; }
 .page-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
 .page-head h1 { font-family: var(--font-display); font-weight: 800; font-size: 28px; letter-spacing: -.02em; margin: 0; line-height: 1.1; }
-.filter-pill { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; font-size: 13px; padding: 7px 12px 7px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); cursor: pointer; }
-.filter-pill span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.filter-pill svg { width: 16px; height: 16px; }
 
 /* Dock: compact and centred, like the Mac dock. */
 .dock { position: fixed; z-index: 30; left: 50%; bottom: calc(var(--dock-gap) + var(--safe-b)); transform: translateX(-50%); display: flex; gap: 4px; padding: 6px; border-radius: 22px; background: var(--glass); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border: 1px solid var(--line); box-shadow: var(--shadow); }
@@ -373,6 +370,12 @@ svg text { font-family: var(--font-body); font-size: 11px; fill: var(--muted); }
 .link-btn { border: 0; background: none; padding: 2px 0; font: inherit; font-size: 12px; font-weight: 600; color: var(--accent); cursor: pointer; }
 .step-seg { margin-top: 6px; }
 .step-seg button { padding-top: 6px; padding-bottom: 6px; }
+/* The same period navigator on Insights and Timeline, beside the page title. */
+.page-head .pnav { flex: 1 1 340px; max-width: 560px; box-shadow: none; }
+.tl-head .page-head .pnav { order: 3; }
+.pnav-filters { position: relative; flex: none; }
+.pnav-filters .badge { position: absolute; top: 0; right: 0; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px; background: var(--accent); color: var(--accent-fg); font-size: 11px; font-weight: 600; display: flex; align-items: center; justify-content: center; }
+@media (max-width: 600px) { .page-head .pnav { flex-basis: 100%; max-width: none; } }
 </style>
 </head>
 <body>
@@ -414,18 +417,18 @@ svg text { font-family: var(--font-body); font-size: 11px; fill: var(--muted); }
 
     <div class="topbar" id="topbar">
       <button type="button" class="bar summary-pill" id="summaryPill"><span id="summaryMain">All trips</span><span class="sub" id="summarySub"></span></button>
-      <div class="bar" id="timeBar" hidden>
+      <div class="bar" id="timeBar" data-pnav hidden>
         <div class="bar-top">
-        <div class="daynav" id="dayNav" hidden>
-          <button type="button" class="icon-btn" id="dayPrev" aria-label="Previous day with trips"><span data-icon="left"></span></button>
-          <label class="date-btn"><b id="dayLabel"></b><small id="daySub"></small><input type="date" id="dayPick" aria-label="Pick a day"></label>
-          <button type="button" class="icon-btn" id="dayNext" aria-label="Next day with trips"><span data-icon="right"></span></button>
-        </div>
-        <button type="button" class="range-label summary-pill" id="rangeLabel" hidden style="padding:6px 8px 2px"><b id="rangeMain"></b><small id="rangeSub"></small></button>
-          <button type="button" class="today-btn" id="todayBtn" hidden>Today</button>
+          <div class="daynav" data-pn="nav" hidden>
+            <button type="button" class="icon-btn" data-pn="prev" aria-label="Previous day with trips"><span data-icon="left"></span></button>
+            <label class="date-btn"><b data-pn="label"></b><small data-pn="sub"></small><input type="date" data-pn="pick" aria-label="Pick a day"></label>
+            <button type="button" class="icon-btn" data-pn="next" aria-label="Next day with trips"><span data-icon="right"></span></button>
+          </div>
+          <button type="button" class="range-label summary-pill" data-pn="range" data-open-filters hidden><b data-pn="rangeMain"></b><small data-pn="rangeSub"></small></button>
+          <button type="button" class="today-btn" data-pn="today" hidden>Today</button>
           <button type="button" class="icon-btn scrub-toggle" id="scrubToggle" aria-label="Show time slider" aria-pressed="false" title="Time slider"><span data-icon="clock"></span></button>
         </div>
-        <div class="seg full step-seg" role="group" aria-label="Step by" id="stepSeg" hidden><button type="button" data-step="day" aria-pressed="true">Day</button><button type="button" data-step="week" aria-pressed="false">Week</button><button type="button" data-step="month" aria-pressed="false">Month</button><button type="button" data-step="year" aria-pressed="false">Year</button></div>
+        <div class="seg full step-seg" role="group" aria-label="Step by" data-pn="step" hidden><button type="button" data-step="day" aria-pressed="true">Day</button><button type="button" data-step="week" aria-pressed="false">Week</button><button type="button" data-step="month" aria-pressed="false">Month</button><button type="button" data-step="year" aria-pressed="false">Year</button></div>
         <div class="scrub">
           <button type="button" class="play" id="playBtn" aria-label="Play"><span data-icon="play"></span></button>
           <input type="range" id="scrub" min="0" max="1000" step="1" value="1000" aria-label="Time">
@@ -445,7 +448,19 @@ svg text { font-family: var(--font-body); font-size: 11px; fill: var(--muted); }
     <div class="page-inner">
       <div class="page-head">
         <h1>Insights</h1>
-        <button type="button" class="filter-pill" data-open-filters><span data-icon="filter"></span><span class="filter-text"></span></button>
+        <div class="bar pnav" data-pnav>
+          <div class="bar-top">
+            <div class="daynav" data-pn="nav" hidden>
+              <button type="button" class="icon-btn" data-pn="prev" aria-label="Previous day with trips"><span data-icon="left"></span></button>
+              <label class="date-btn"><b data-pn="label"></b><small data-pn="sub"></small><input type="date" data-pn="pick" aria-label="Pick a day"></label>
+              <button type="button" class="icon-btn" data-pn="next" aria-label="Next day with trips"><span data-icon="right"></span></button>
+            </div>
+            <button type="button" class="range-label summary-pill" data-pn="range" data-open-filters hidden><b data-pn="rangeMain"></b><small data-pn="rangeSub"></small></button>
+            <button type="button" class="today-btn" data-pn="today" hidden>Today</button>
+            <button type="button" class="icon-btn pnav-filters" data-open-filters aria-label="Filters"><span data-icon="filter"></span><span class="badge" data-pn="badge" hidden></span></button>
+          </div>
+          <div class="seg full step-seg" role="group" aria-label="Step by" data-pn="step" hidden><button type="button" data-step="day" aria-pressed="true">Day</button><button type="button" data-step="week" aria-pressed="false">Week</button><button type="button" data-step="month" aria-pressed="false">Month</button><button type="button" data-step="year" aria-pressed="false">Year</button></div>
+        </div>
       </div>
       <div class="cards">
         <section class="card wide">
@@ -500,8 +515,20 @@ svg text { font-family: var(--font-body); font-size: 11px; fill: var(--muted); }
       <div class="page-head">
         <h1>Timeline</h1>
         <div class="tl-actions">
-          <button type="button" class="filter-pill" data-open-filters><span data-icon="filter"></span><span class="filter-text"></span></button>
           <label class="icon-btn tl-jump" title="Jump to date"><span data-icon="calendar"></span><span class="visually-hidden">Jump to date</span><input type="date" id="tlJump"></label>
+        </div>
+        <div class="bar pnav" data-pnav>
+          <div class="bar-top">
+            <div class="daynav" data-pn="nav" hidden>
+              <button type="button" class="icon-btn" data-pn="prev" aria-label="Previous day with trips"><span data-icon="left"></span></button>
+              <label class="date-btn"><b data-pn="label"></b><small data-pn="sub"></small><input type="date" data-pn="pick" aria-label="Pick a day"></label>
+              <button type="button" class="icon-btn" data-pn="next" aria-label="Next day with trips"><span data-icon="right"></span></button>
+            </div>
+            <button type="button" class="range-label summary-pill" data-pn="range" data-open-filters hidden><b data-pn="rangeMain"></b><small data-pn="rangeSub"></small></button>
+            <button type="button" class="today-btn" data-pn="today" hidden>Today</button>
+            <button type="button" class="icon-btn pnav-filters" data-open-filters aria-label="Filters"><span data-icon="filter"></span><span class="badge" data-pn="badge" hidden></span></button>
+          </div>
+          <div class="seg full step-seg" role="group" aria-label="Step by" data-pn="step" hidden><button type="button" data-step="day" aria-pressed="true">Day</button><button type="button" data-step="week" aria-pressed="false">Week</button><button type="button" data-step="month" aria-pressed="false">Month</button><button type="button" data-step="year" aria-pressed="false">Year</button></div>
         </div>
       </div>
     </div>
@@ -2130,6 +2157,7 @@ function apply() {
   selV = Int32Array.from(outV);
   dirty.map = dirty.insights = dirty.timeline = true;
   syncFilterUI();
+  syncPeriodNavs();
   renderTab();
 }
 var applyTimer = 0;
@@ -2171,7 +2199,8 @@ function buildFilterUI() {
   for (i = 1; i <= 24; i++) h1 += '<option value="' + i + '">' + pad2(i % 24) + ':00' + (i === 24 ? ' (midnight)' : '') + '</option>';
   $('h0').innerHTML = h0; $('h1').innerHTML = h1;
   var lo = isoDay(M.minD), hi = isoDay(M.maxD);
-  ['oneDay', 'from', 'to', 'dayPick', 'tlJump'].forEach(function (id) { $(id).min = lo; $(id).max = hi; });
+  ['oneDay', 'from', 'to', 'tlJump'].forEach(function (id) { $(id).min = lo; $(id).max = hi; });
+  document.querySelectorAll('[data-pn="pick"]').forEach(function (e) { e.min = lo; e.max = hi; });
 }
 function setPressed(sel_, fn) {
   document.querySelectorAll(sel_).forEach(function (b) { b.setAttribute('aria-pressed', fn(b) ? 'true' : 'false'); });
@@ -2191,14 +2220,12 @@ function syncFilterUI() {
   $('oneField').hidden = F.dm !== 'one';
   document.querySelector('#dayMode [data-dm="one"]').textContent = 'Single ' + (F.dm === 'one' ? F.unit : 'day');
   $('oneLabel').textContent = F.unit === 'day' ? 'Day' : 'Any day in the ' + F.unit;
-  setPressed('#stepSeg button', function (b) { return b.dataset.step === F.unit; });
+  setPressed('[data-pn="step"] button', function (b) { return b.dataset.step === F.unit; });
   $('rangeFields').hidden = F.dm !== 'range';
   $('oneDay').value = isoDay(F.one); $('from').value = isoDay(F.from); $('to').value = isoDay(F.to);
   $('h0').value = F.h0; $('h1').value = F.h1;
   var k = activeFilters();
   $('filterBadge').hidden = !k; $('filterBadge').textContent = k;
-  var txt = filterText() + ' · ' + tripsText(sel.length);
-  document.querySelectorAll('.filter-pill .filter-text').forEach(function (e) { e.textContent = txt; });
 }
 
 $('filtersSheet').addEventListener('click', function (ev) {
@@ -3052,49 +3079,57 @@ var scrubV = 1000, T0 = 0, T1 = 0, playing = false, playRaf = 0, SPEEDS = [1, 2,
 function speedText() { return ({ 0.25: '¼', 0.5: '½' }[PREFS.speed] || PREFS.speed) + '×'; }
 function dayLabel(d) { var x = dayToDate(d); return DOW[x.getUTCDay()] + ' ' + x.getUTCDate() + ' ' + MONTHS[x.getUTCMonth()] + ' ' + x.getUTCFullYear(); }
 function updateTopbar() {
-  var n = sel.length, total = 0, i;
-  for (i = 0; i < n; i++) total += D.km[sel[i]];
-  var one = F.dm === 'one';
+  var n = sel.length, one = F.dm === 'one';
   $('summaryPill').hidden = n > 0 || one;
   $('summaryMain').textContent = 'No trips match your filters';
   $('summarySub').textContent = 'Change filters';
   $('timeBar').hidden = !n && !one;
-  $('dayNav').hidden = !one;
-  $('rangeLabel').hidden = one;
-  $('stepSeg').hidden = !one;
   document.querySelector('#timeBar .scrub').hidden = !n || !PREFS.scrub;
   $('scrubToggle').hidden = !n;
-  var p0 = one ? periodStart(F.one, F.unit) : 0, p1 = one ? periodEnd(F.one, F.unit) : 0, today = todayDay();
-  $('todayBtn').hidden = one && today >= p0 && today <= p1;
   $('scrubToggle').setAttribute('aria-pressed', PREFS.scrub ? 'true' : 'false');
   $('scrubToggle').setAttribute('aria-label', PREFS.scrub ? 'Hide time slider' : 'Show time slider');
-  var sub = n ? tripsText(n) + ' · ' + dist(total) : 'No trips this ' + (one ? F.unit : 'day');
-  if (one) {
-    $('dayLabel').textContent = F.unit === 'day' ? dayLabel(F.one) : periodLabel(F.one, F.unit);
-    $('daySub').textContent = sub;
-    $('dayPick').value = isoDay(F.one);
-    $('dayPick').setAttribute('aria-label', F.unit === 'day' ? 'Pick a day' : 'Pick a day in the ' + F.unit);
-    $('dayPrev').disabled = !M.navDays.length || M.navDays[0] >= p0;
-    $('dayNext').disabled = !M.navDays.length || M.navDays[M.navDays.length - 1] <= p1;
-    $('dayPrev').setAttribute('aria-label', 'Previous ' + F.unit + ' with trips');
-    $('dayNext').setAttribute('aria-label', 'Next ' + F.unit + ' with trips');
-  } else {
-    var k = activeFilters() - (F.dm !== 'all' ? 1 : 0);
-    $('rangeMain').textContent = F.dm === 'all' ? 'All time' : F.from === F.to ? dayLabel(F.from) : niceDate(F.from) + ' – ' + niceDate(F.to);
-    $('rangeSub').textContent = sub + (k ? ' · ' + k + ' filter' + (k > 1 ? 's' : '') : '');
-  }
   if (n) {
     if (one) {
       var o = D.off[sel[0]], offMs = o !== NO_OFF ? o * 60000 : -new Date(F.one * 864e5).getTimezoneOffset() * 60000;
-      T0 = p0 * 864e5 - offMs; T1 = (p1 + 1) * 864e5 - offMs;
+      T0 = periodStart(F.one, F.unit) * 864e5 - offMs; T1 = (periodEnd(F.one, F.unit) + 1) * 864e5 - offMs;
     } else {
       T0 = D.start[sel[0]]; T1 = T0;
-      for (i = 0; i < n; i++) if (D.end[sel[i]] > T1) T1 = D.end[sel[i]];
+      for (var i = 0; i < n; i++) if (D.end[sel[i]] > T1) T1 = D.end[sel[i]];
       if (T1 <= T0) T1 = T0 + 1;
     }
   }
   $('speedBtn').textContent = speedText();
   scrubLabel();
+}
+// The period navigator at the top of the Map, Insights and Timeline. They share one period
+// (the filters' days), so stepping on any tab moves them all.
+function syncPeriodNavs() {
+  var n = sel.length, total = 0, i, one = F.dm === 'one', nd = M.navDays;
+  for (i = 0; i < n; i++) total += D.km[sel[i]];
+  var p0 = one ? periodStart(F.one, F.unit) : 0, p1 = one ? periodEnd(F.one, F.unit) : 0, today = todayDay();
+  var sub = n ? tripsText(n) + ' · ' + dist(total) : one ? 'No trips this ' + F.unit : 'No trips';
+  var k = activeFilters(), kr = k - (F.dm !== 'all' ? 1 : 0);
+  document.querySelectorAll('[data-pnav]').forEach(function (bar) {
+    function q(name) { return bar.querySelector('[data-pn="' + name + '"]'); }
+    q('nav').hidden = !one;
+    q('range').hidden = one;
+    q('step').hidden = !one;
+    q('today').hidden = one && today >= p0 && today <= p1;
+    if (q('badge')) { q('badge').hidden = !k; q('badge').textContent = k; }
+    if (one) {
+      q('label').textContent = F.unit === 'day' ? dayLabel(F.one) : periodLabel(F.one, F.unit);
+      q('sub').textContent = sub;
+      q('pick').value = isoDay(F.one);
+      q('pick').setAttribute('aria-label', F.unit === 'day' ? 'Pick a day' : 'Pick a day in the ' + F.unit);
+      q('prev').disabled = !nd.length || nd[0] >= p0;
+      q('next').disabled = !nd.length || nd[nd.length - 1] <= p1;
+      q('prev').setAttribute('aria-label', 'Previous ' + F.unit + ' with trips');
+      q('next').setAttribute('aria-label', 'Next ' + F.unit + ' with trips');
+    } else {
+      q('rangeMain').textContent = F.dm === 'all' ? 'All time' : F.from === F.to ? dayLabel(F.from) : niceDate(F.from) + ' – ' + niceDate(F.to);
+      q('rangeSub').textContent = sub + (kr ? ' · ' + kr + ' filter' + (kr > 1 ? 's' : '') : '');
+    }
+  });
 }
 // Steps to the nearest day, week, month or year before or after this one that has trips.
 // It lands on the last day with trips going back and the first going forward.
@@ -3104,19 +3139,21 @@ function stepDay(dir) {
   else { for (k = 0; k < nd.length; k++) if (nd[k] > z) { d = nd[k]; break; } }
   if (d != null) showDay(d, F.unit);
 }
-$('dayPrev').addEventListener('click', function () { stepDay(-1); });
-$('todayBtn').addEventListener('click', function () { showDay(todayDay(), F.dm === 'one' ? F.unit : 'day'); });
-$('dayNext').addEventListener('click', function () { stepDay(1); });
-$('dayPick').addEventListener('change', function () { var d = parseIsoDay(this.value); if (d != null) showDay(d, F.unit); });
-// Switching unit keeps the day you were on, so Day after Month goes back to it.
-$('stepSeg').addEventListener('click', function (ev) {
-  var b = ev.target.closest('[data-step]');
-  if (b && b.dataset.step !== F.unit) showDay(F.one, b.dataset.step);
+document.querySelectorAll('[data-pnav]').forEach(function (bar) {
+  function q(name) { return bar.querySelector('[data-pn="' + name + '"]'); }
+  q('prev').addEventListener('click', function () { stepDay(-1); });
+  q('next').addEventListener('click', function () { stepDay(1); });
+  q('today').addEventListener('click', function () { showDay(todayDay(), F.dm === 'one' ? F.unit : 'day'); });
+  q('pick').addEventListener('change', function () { var d = parseIsoDay(this.value); if (d != null) showDay(d, F.unit); });
+  // Switching unit keeps the day you were on, so Day after Month goes back to it.
+  q('step').addEventListener('click', function (ev) {
+    var b = ev.target.closest('[data-step]');
+    if (b && b.dataset.step !== F.unit) showDay(F.one, b.dataset.step);
+  });
 });
-$('rangeLabel').addEventListener('click', function () { openSheet('filtersSheet'); });
 $('summaryPill').addEventListener('click', function () { openSheet('filtersSheet'); });
 document.addEventListener('keydown', function (ev) {
-  if (tab !== 'map' || F == null || F.dm !== 'one' || openId || /INPUT|SELECT|TEXTAREA/.test(ev.target.tagName)) return;
+  if (F == null || F.dm !== 'one' || openId || /INPUT|SELECT|TEXTAREA/.test(ev.target.tagName)) return;
   if (ev.key === 'ArrowLeft') stepDay(-1);
   if (ev.key === 'ArrowRight') stepDay(1);
 });

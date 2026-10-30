@@ -98,9 +98,6 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .page-inner { max-width: 1080px; margin: 0 auto; }
 .page-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
 .page-head h1 { font-family: var(--font-display); font-weight: 800; font-size: 28px; letter-spacing: -.02em; margin: 0; line-height: 1.1; }
-.filter-pill { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; font-size: 13px; padding: 7px 12px 7px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); cursor: pointer; }
-.filter-pill span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.filter-pill svg { width: 16px; height: 16px; }
 
 /* Dock: compact and centred, like the Mac dock. */
 .dock { position: fixed; z-index: 30; left: 50%; bottom: calc(var(--dock-gap) + var(--safe-b)); transform: translateX(-50%); display: flex; gap: 4px; padding: 6px; border-radius: 22px; background: var(--glass); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border: 1px solid var(--line); box-shadow: var(--shadow); }
@@ -353,3 +350,9 @@ svg text { font-family: var(--font-body); font-size: 11px; fill: var(--muted); }
 .link-btn { border: 0; background: none; padding: 2px 0; font: inherit; font-size: 12px; font-weight: 600; color: var(--accent); cursor: pointer; }
 .step-seg { margin-top: 6px; }
 .step-seg button { padding-top: 6px; padding-bottom: 6px; }
+/* The same period navigator on Insights and Timeline, beside the page title. */
+.page-head .pnav { flex: 1 1 340px; max-width: 560px; box-shadow: none; }
+.tl-head .page-head .pnav { order: 3; }
+.pnav-filters { position: relative; flex: none; }
+.pnav-filters .badge { position: absolute; top: 0; right: 0; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px; background: var(--accent); color: var(--accent-fg); font-size: 11px; font-weight: 600; display: flex; align-items: center; justify-content: center; }
+@media (max-width: 600px) { .page-head .pnav { flex-basis: 100%; max-width: none; } }

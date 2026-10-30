@@ -110,11 +110,3 @@ function tlClose() {
 }
 $('tlMapClose').addEventListener('click', tlClose);
 $('tlMapInfo').addEventListener('click', function (ev) { var b = ev.target.closest('[data-details]'); if (b) openTrip(+b.dataset.details); });
-$('tlJump').addEventListener('change', function () {
-  var d = parseIsoDay(this.value);
-  if (d == null) return;
-  if (dirty.timeline) { dirty.timeline = false; buildTimeline(); }
-  // The list runs newest first: go to the first day on or before the one picked.
-  for (var k = 0; k < TL.type.length; k++) if (TL.type[k] === 0 && TL.ref[k] <= d) { $('tlList').scrollTop = TL.tops[k]; tlRender(true); return; }
-  toast('No trips on or before ' + niceDate(d) + ' with these filters.');
-});

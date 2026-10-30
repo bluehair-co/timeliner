@@ -27,7 +27,7 @@ A file in the on-device Timeline.json format with `"simulated": true` at the top
 
 ## Layout
 
-- **Map:** full-screen map with the time slider at the top. When a single day is chosen, the top bar becomes a navigator: switch between Day, Week (Monday to Sunday), Month and Year, and the arrows (or the arrow keys) step to the previous or next one with trips. Filters are bottom-left (the gear there opens Settings). Views and layers are bottom-right: Mercator, Equal Earth or Globe; paths; a heatmap of where you travelled or stayed, based on GPS points, paths (how many trips went along each route) or time spent, with dot size and intensity; and countries visited.
+- **Map:** full-screen map with the time slider at the top. When a single day is chosen, the top bar becomes a navigator: switch between Day, Week (Monday to Sunday), Month and Year, and the arrows (or the arrow keys) step to the previous or next one with trips. Filters are bottom-left (the gear there opens Settings). Views and layers are bottom-right: Mercator, Equal Earth or Globe; paths; a heatmap of where you travelled or stayed, based on GPS points, paths (how many trips went along each route, flights included) or time spent, with dot size and intensity; and countries visited.
 - **Insights:** the same navigator as the map, in the same place (the period is shared, so stepping on any tab moves them all, and it stays put as you switch tabs), then summary, how you travel, weekly rhythm, change over time, top routes, places, records, countries and CO₂.
 - **Timeline:** the same navigator, then every trip in the filter range, newest first. Tap a trip to see it on a map at the top of the list.
 

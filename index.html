@@ -3369,6 +3369,14 @@ function heatPoints() {
             w.push(Math.max(0.05, Math.min(10, dt / 60)));
           } else w.push(1);
         }
+      } else if (by === 'paths') {
+        // Flights (and trips without a trail) follow the same line the map draws for them.
+        var tp = tripPath(i);
+        for (j = 0; j < tp.length; j++) {
+          var lo = ((tp[j][1] + 180) % 360 + 360) % 360 - 180;
+          link.push(j > 0 && Math.abs(lo - lng[lng.length - 1]) < 180 ? 1 : 0);
+          lat.push(tp[j][0]); lng.push(lo); w.push(1); trip.push(k);
+        }
       } else {
         lat.push(D.from[2 * i], D.to[2 * i]); lng.push(D.from[2 * i + 1], D.to[2 * i + 1]);
         w.push(by === 'time' ? 0.5 : 1, by === 'time' ? 0.5 : 1); link.push(0, 0); trip.push(k, k);
@@ -3377,7 +3385,7 @@ function heatPoints() {
     note = by === 'points' ? 'Where you travelled, with every GPS point counting once, so places with dense trails stand out.'
       : by === 'paths' ? 'Where you travelled, by how many trips went along each route.'
       : 'Where you travelled, by the time spent moving along each GPS trail.';
-    note += ' Flights count only where they took off and landed.';
+    note += by === 'paths' ? ' Flights follow the shortest route over the globe.' : ' Flights count only where they took off and landed.';
   }
   var n = lat.length, X = new Float64Array(n), Y = new Float64Array(n), W = Float32Array.from(w), r = Math.PI / 180;
   for (k = 0; k < n; k++) {

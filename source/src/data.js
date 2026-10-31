@@ -57,13 +57,15 @@ function setData(R) {
   RAW = upgrade(R);
   D = withStrava(RAW);
   $('app').classList.remove('no-data');
-  var n = D.day.length, nv = D.vs.length, i, yc = {}, present = {};
+  var n = D.day.length, nv = D.vs.length, i, yc = {}, present = {}, sp = {};
+  if (!D.sport) D.sport = new Uint8Array(n);
   D.year = new Int16Array(n); D.month = new Int8Array(n); D.dow = new Int8Array(n); D.hour = new Int8Array(n);
   for (i = 0; i < n; i++) {
     var x = dayToDate(D.day[i]);
     D.year[i] = x.getUTCFullYear(); D.month[i] = x.getUTCMonth(); D.dow[i] = x.getUTCDay();
     D.hour[i] = localHour(D.start[i], D.off[i]);
     yc[D.year[i]] = 1; present[MODES[D.mode[i]]] = 1;
+    if (D.sport[i]) sp[D.sport[i]] = (sp[D.sport[i]] || 0) + 1;
   }
   D.vyear = new Int16Array(nv); D.vmonth = new Int8Array(nv); D.vdow = new Int8Array(nv);
   for (i = 0; i < nv; i++) {
@@ -86,7 +88,9 @@ function setData(R) {
     modes: MODES.filter(function (m) { return present[m]; }),
     countries: D.ccList.map(function (_, k) { return k; }).filter(function (k) { return D.ccCount[k] > 0; })
       .sort(function (a, b) { return D.ccCount[b] - D.ccCount[a]; }),
-    minD: minD, maxD: maxD, anyGuess: anyGuess, navDays: []
+    minD: minD, maxD: maxD, anyGuess: anyGuess, navDays: [],
+    // Strava sports present, by mode, in the order SPORTS lists them.
+    sports: Object.keys(sp).map(Number).sort(function (a, b) { return a - b; }), sportN: sp
   };
   F = defaultFilters();
   buildFilterUI();
@@ -108,7 +112,7 @@ function defaultFilters() {
   return {
     dm: 'week', one: M.maxD, unit: 'day', from: wk[0], to: wk[1],
     years: new Set(M.years), months: new Set([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]), dows: new Set([0, 1, 2, 3, 4, 5, 6]),
-    h0: 0, h1: 24, modes: new Set(M.modes), countries: new Set(M.countries), guess: 'all', src: 'all'
+    h0: 0, h1: 24, modes: new Set(M.modes), sports: new Set(M.sports), countries: new Set(M.countries), guess: 'all', src: 'all'
   };
 }
 function activeFilters() {
@@ -118,7 +122,7 @@ function activeFilters() {
   if (F.months.size !== 12) k++;
   if (F.dows.size !== 7) k++;
   if (F.h0 !== 0 || F.h1 !== 24) k++;
-  if (F.modes.size !== M.modes.length) k++;
+  if (F.modes.size !== M.modes.length || F.sports.size !== M.sports.length) k++;
   if (F.countries.size !== M.countries.length) k++;
   if (F.guess !== 'all') k++;
   if (F.src !== 'all') k++;
@@ -139,7 +143,7 @@ function apply() {
   var allCC = F.countries.size === M.countries.length, anyHour = F.h0 === 0 && F.h1 === 24;
   for (k = 0; k < ord.length; k++) {
     i = ord[k];
-    if (!modeOk[D.mode[i]] || !F.years.has(D.year[i]) || !F.months.has(D.month[i]) || !F.dows.has(D.dow[i])) continue;
+    if (!modeOk[D.mode[i]] || D.sport[i] && !F.sports.has(D.sport[i]) || !F.years.has(D.year[i]) || !F.months.has(D.month[i]) || !F.dows.has(D.dow[i])) continue;
     if (F.guess === 'no' && D.est[i] & 4) continue;
     if (F.guess === 'only' && !(D.est[i] & 4)) continue;
     if (F.src !== 'all' && !(D.est[i] & STRAVA) === (F.src === 'strava')) continue;
@@ -189,8 +193,11 @@ function buildFilterUI() {
     return '<button type="button" class="chip" data-f="group" data-v="' + g.key + '" aria-pressed="false"><i style="width:10px;height:10px;border-radius:3px;display:block;background:' + g.color + '"></i>' + g.label + '</button>';
   }).join('') : '';
   $('groupChips').hidden = groups.length < 2;
+  // A mode with Strava sports gets a row of chips for them under it.
   $('modes').innerHTML = M.modes.map(function (m) {
-    return chipHtml('modes', m, '<span style="color:' + modeColor(m) + ';display:flex">' + icon(m) + '</span>' + (LABEL[m] || m), mc[m]);
+    var subs = M.sports.filter(function (k) { return SPORTS[k][2] === m; });
+    return chipHtml('modes', m, '<span style="color:' + modeColor(m) + ';display:flex">' + icon(m) + '</span>' + (LABEL[m] || m), mc[m]) +
+      (subs.length ? '<div class="subchips" aria-label="' + (LABEL[m] || m) + ' on Strava">' + subs.map(function (k) { return chipHtml('sports', k, esc(SPORTS[k][1]), M.sportN[k]).replace('class="chip"', 'class="chip sub"'); }).join('') + '</div>' : '');
   }).join('');
   $('countries').innerHTML = M.countries.map(function (k) {
     var cc = D.ccList[k];
@@ -207,6 +214,8 @@ function buildFilterUI() {
   ['oneDay', 'from', 'to'].forEach(function (id) { $(id).min = lo; $(id).max = hi; });
   document.querySelectorAll('[data-pn="pick"]').forEach(function (e) { e.min = lo; e.max = hi; });
 }
+// Turn all of a mode's Strava sports on or off.
+function sportsOf(m, on) { M.sports.forEach(function (k) { if (SPORTS[k][2] === m) { if (on) F.sports.add(k); else F.sports.delete(k); } }); }
 function setPressed(sel_, fn) {
   document.querySelectorAll(sel_).forEach(function (b) { b.setAttribute('aria-pressed', fn(b) ? 'true' : 'false'); });
 }
@@ -217,6 +226,7 @@ function syncFilterUI() {
       var g = GROUPS.filter(function (x) { return x.key === v; })[0], have = g.modes.filter(function (m) { return M.modes.indexOf(m) >= 0; });
       return have.length > 0 && have.every(function (m) { return F.modes.has(m); });
     }
+    if (f === 'sports') return F.modes.has(SPORTS[+v][2]) && F.sports.has(+v);
     return F[f].has(f === 'modes' ? v : +v);
   });
   setPressed('#dayMode button', function (b) { return b.dataset.dm === F.dm; });
@@ -241,13 +251,19 @@ $('filtersSheet').addEventListener('click', function (ev) {
     if (f === 'group') {
       var g = GROUPS.filter(function (x) { return x.key === v; })[0], have = g.modes.filter(function (m) { return M.modes.indexOf(m) >= 0; });
       var on = have.every(function (m) { return F.modes.has(m); });
-      have.forEach(function (m) { if (on) F.modes.delete(m); else F.modes.add(m); });
+      have.forEach(function (m) { if (on) F.modes.delete(m); else { F.modes.add(m); sportsOf(m, true); } });
+    } else if (f === 'sports') {
+      // Turning a sport on also turns its mode on, keeping only that sport if the mode was off.
+      var k = +v, pm = SPORTS[k][2];
+      if (!F.modes.has(pm)) { F.modes.add(pm); sportsOf(pm, false); F.sports.add(k); }
+      else if (F.sports.has(k)) F.sports.delete(k); else F.sports.add(k);
     } else {
       var val = f === 'modes' ? v : +v, s = F[f];
-      if (s.has(val)) s.delete(val); else s.add(val);
+      if (s.has(val)) s.delete(val); else { s.add(val); if (f === 'modes') sportsOf(val, true); }
     }
   } else if (b.dataset.q) {
     var all = b.dataset.all === '1', q = b.dataset.q;
+    if (q === 'modes') F.sports = new Set(all ? M.sports : []);
     F[q] = new Set(all ? { years: M.years, months: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], dows: [0, 1, 2, 3, 4, 5, 6], modes: M.modes, countries: M.countries }[q] : []);
   } else if (b.dataset.dm) {
     F.dm = b.dataset.dm;
@@ -569,7 +585,14 @@ function merge(base, parts) {
   var sall = (base && base.strava ? [base.strava] : []).concat(sv), sidx = [];
   sall.forEach(function (p, pi) { for (var i = 0; i < p.start.length; i++) sidx.push([pi, i]); });
   sidx.sort(function (a, b) { return sall[a[0]].start[a[1]] - sall[b[0]].start[b[1]]; });
-  sidx = sidx.filter(function (x, j) { return !j || sall[x[0]].start[x[1]] - sall[sidx[j - 1][0]].start[sidx[j - 1][1]] > 60000; });
+  // The newer file's copy wins, so loading an export again picks up what this version reads from it (such as the sport).
+  var skeep = [];
+  sidx.forEach(function (x) {
+    var L = skeep[skeep.length - 1];
+    if (L && sall[x[0]].start[x[1]] - sall[L[0]].start[L[1]] <= 60000) { if (x[0] > L[0]) skeep[skeep.length - 1] = x; }
+    else skeep.push(x);
+  });
+  sidx = skeep;
   if (sidx.length) R.strava = gather(sall, sidx, function () { return SRC.strava; });
   return R;
 }
@@ -577,7 +600,7 @@ function merge(base, parts) {
 function gather(all, out, src) {
   var n = out.length, npts = 0;
   var R = { start: new Float64Array(n), end: new Float64Array(n), day: new Int32Array(n), mode: new Uint8Array(n),
-    km: new Float32Array(n), est: new Uint8Array(n), off: new Int16Array(n), orig: new Float32Array(n), from: new Float32Array(2 * n), to: new Float32Array(2 * n), srcs: new Uint8Array(n) };
+    km: new Float32Array(n), est: new Uint8Array(n), off: new Int16Array(n), orig: new Float32Array(n), from: new Float32Array(2 * n), to: new Float32Array(2 * n), srcs: new Uint8Array(n), sport: new Uint8Array(n) };
   out.forEach(function (x) { var p = all[x[0]]; npts += p.pathOff[x[1] + 1] - p.pathOff[x[1]]; });
   R.pathPts = new Float32Array(2 * npts); R.pathT = new Float32Array(npts); R.pathOff = new Uint32Array(n + 1);
   var w = 0;
@@ -586,7 +609,7 @@ function gather(all, out, src) {
     R.start[j] = p.start[i]; R.end[j] = p.end[i]; R.day[j] = p.day[i]; R.mode[j] = p.mode[i]; R.km[j] = p.km[i]; R.est[j] = p.est[i];
     R.off[j] = p.off ? p.off[i] : NO_OFF; R.orig[j] = p.orig ? p.orig[i] : 0;
     R.from[2 * j] = p.from[2 * i]; R.from[2 * j + 1] = p.from[2 * i + 1]; R.to[2 * j] = p.to[2 * i]; R.to[2 * j + 1] = p.to[2 * i + 1];
-    R.srcs[j] = src(p, i);
+    R.srcs[j] = src(p, i); R.sport[j] = p.sport ? p.sport[i] : 0;
     for (var q = p.pathOff[i]; q < p.pathOff[i + 1]; q++, w++) { R.pathPts[2 * w] = p.pathPts[2 * q]; R.pathPts[2 * w + 1] = p.pathPts[2 * q + 1]; R.pathT[w] = p.pathT[q]; }
     R.pathOff[j + 1] = w;
   });

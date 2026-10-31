@@ -84,7 +84,7 @@ function setData(R) {
   RAW = upgrade(R);
   D = withStrava(RAW);
   $('app').classList.remove('no-data');
-  var n = D.day.length, nv = D.vs.length, i, yc = {}, present = {}, sp = {};
+  var n = D.day.length, nv = D.vs.length, i, yc = {}, present = {}, sp = {}, plain = {};
   if (!D.sport) D.sport = new Uint8Array(n);
   D.year = new Int16Array(n); D.month = new Int8Array(n); D.dow = new Int8Array(n); D.hour = new Int8Array(n);
   for (i = 0; i < n; i++) {
@@ -93,6 +93,7 @@ function setData(R) {
     D.hour[i] = localHour(D.start[i], D.off[i]);
     yc[D.year[i]] = 1; present[MODES[D.mode[i]]] = 1;
     if (D.sport[i]) sp[D.sport[i]] = (sp[D.sport[i]] || 0) + 1;
+    else plain[MODES[D.mode[i]]] = 1;
   }
   D.vyear = new Int16Array(nv); D.vmonth = new Int8Array(nv); D.vdow = new Int8Array(nv);
   for (i = 0; i < nv; i++) {
@@ -117,7 +118,9 @@ function setData(R) {
       .sort(function (a, b) { return D.ccCount[b] - D.ccCount[a]; }),
     minD: minD, maxD: maxD, anyGuess: anyGuess, navDays: [],
     // Strava sports present, by mode, in the order SPORTS lists them.
-    sports: Object.keys(sp).map(Number).sort(function (a, b) { return a - b; }), sportN: sp
+    sports: Object.keys(sp).map(Number).sort(function (a, b) { return a - b; }), sportN: sp,
+    // Modes with trips that have no sport (from Timeline, or a Strava type Timeliner doesn't know).
+    plain: plain
   };
   F = defaultFilters();
   buildFilterUI();
@@ -170,7 +173,7 @@ function apply() {
   var allCC = F.countries.size === M.countries.length, anyHour = F.h0 === 0 && F.h1 === 24;
   for (k = 0; k < ord.length; k++) {
     i = ord[k];
-    if (!modeOk[D.mode[i]] || D.sport[i] && !F.sports.has(D.sport[i]) || !F.years.has(D.year[i]) || !F.months.has(D.month[i]) || !F.dows.has(D.dow[i])) continue;
+    if (!(D.sport[i] ? F.sports.has(D.sport[i]) : modeOk[D.mode[i]]) || !F.years.has(D.year[i]) || !F.months.has(D.month[i]) || !F.dows.has(D.dow[i])) continue;
     if (F.guess === 'no' && D.est[i] & 4) continue;
     if (F.guess === 'only' && !(D.est[i] & 4)) continue;
     if (F.src !== 'all' && !(D.est[i] & STRAVA) === (F.src === 'strava')) continue;
@@ -241,20 +244,37 @@ function buildFilterUI() {
   ['oneDay', 'from', 'to'].forEach(function (id) { $(id).min = lo; $(id).max = hi; });
   document.querySelectorAll('[data-pn="pick"]').forEach(function (e) { e.min = lo; e.max = hi; });
 }
-// Turn all of a mode's Strava sports on or off.
-function sportsOf(m, on) { M.sports.forEach(function (k) { if (SPORTS[k][2] === m) { if (on) F.sports.add(k); else F.sports.delete(k); } }); }
+// A trip with a Strava sport is shown when its sport is on; other trips when their mode is on.
+// So a mode with sports is fully on when it and all its sports are, partly on when some are.
+function modeParts(m) {
+  var out = [];
+  M.sports.forEach(function (k) { if (SPORTS[k][2] === m) out.push(F.sports.has(k)); });
+  if (!out.length || M.plain[m]) out.push(F.modes.has(m));
+  return out;
+}
+function modeState(m) {
+  var p = modeParts(m), on = p.filter(Boolean).length;
+  return on === p.length ? 'true' : on ? 'mixed' : 'false';
+}
+function setMode(m, on) {
+  if (on) F.modes.add(m); else F.modes.delete(m);
+  M.sports.forEach(function (k) { if (SPORTS[k][2] === m) { if (on) F.sports.add(k); else F.sports.delete(k); } });
+}
+function groupModes(key) {
+  var g = GROUPS.filter(function (x) { return x.key === key; })[0];
+  return g.modes.filter(function (m) { return M.modes.indexOf(m) >= 0; });
+}
+function groupState(key) {
+  var st = groupModes(key).map(modeState);
+  return st.length && st.every(function (x) { return x === 'true'; }) ? 'true' : st.some(function (x) { return x !== 'false'; }) ? 'mixed' : 'false';
+}
 function setPressed(sel_, fn) {
   document.querySelectorAll(sel_).forEach(function (b) { b.setAttribute('aria-pressed', fn(b) ? 'true' : 'false'); });
 }
 function syncFilterUI() {
-  setPressed('#filtersSheet .chip[data-f]', function (b) {
+  document.querySelectorAll('#filtersSheet .chip[data-f]').forEach(function (b) {
     var f = b.dataset.f, v = b.dataset.v;
-    if (f === 'group') {
-      var g = GROUPS.filter(function (x) { return x.key === v; })[0], have = g.modes.filter(function (m) { return M.modes.indexOf(m) >= 0; });
-      return have.length > 0 && have.every(function (m) { return F.modes.has(m); });
-    }
-    if (f === 'sports') return F.modes.has(SPORTS[+v][2]) && F.sports.has(+v);
-    return F[f].has(f === 'modes' ? v : +v);
+    b.setAttribute('aria-pressed', f === 'group' ? groupState(v) : f === 'modes' ? modeState(v) : F[f].has(+v) ? 'true' : 'false');
   });
   setPressed('#dayMode button', function (b) { return b.dataset.dm === F.dm; });
   setPressed('#guessSeg button', function (b) { return b.dataset.g === F.guess; });
@@ -275,18 +295,14 @@ $('filtersSheet').addEventListener('click', function (ev) {
   if (!b) return;
   if (b.dataset.f) {
     var f = b.dataset.f, v = b.dataset.v;
+    // A group or mode that is fully on turns off; one that is off or partly on turns fully on.
     if (f === 'group') {
-      var g = GROUPS.filter(function (x) { return x.key === v; })[0], have = g.modes.filter(function (m) { return M.modes.indexOf(m) >= 0; });
-      var on = have.every(function (m) { return F.modes.has(m); });
-      have.forEach(function (m) { if (on) F.modes.delete(m); else { F.modes.add(m); sportsOf(m, true); } });
-    } else if (f === 'sports') {
-      // Turning a sport on also turns its mode on, keeping only that sport if the mode was off.
-      var k = +v, pm = SPORTS[k][2];
-      if (!F.modes.has(pm)) { F.modes.add(pm); sportsOf(pm, false); F.sports.add(k); }
-      else if (F.sports.has(k)) F.sports.delete(k); else F.sports.add(k);
-    } else {
-      var val = f === 'modes' ? v : +v, s = F[f];
-      if (s.has(val)) s.delete(val); else { s.add(val); if (f === 'modes') sportsOf(val, true); }
+      var on = groupState(v) === 'true';
+      groupModes(v).forEach(function (m) { setMode(m, !on); });
+    } else if (f === 'modes') setMode(v, modeState(v) !== 'true');
+    else {
+      var val = +v, s = F[f];
+      if (s.has(val)) s.delete(val); else s.add(val);
     }
   } else if (b.dataset.q) {
     var all = b.dataset.all === '1', q = b.dataset.q;

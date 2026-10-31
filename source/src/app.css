@@ -72,6 +72,9 @@ svg.stroke { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: 
 .chip svg.ic { width: 16px; height: 16px; }
 .chip[aria-pressed="true"] { background: var(--chip-on-bg); color: var(--chip-on-fg); border-color: transparent; }
 .chip .n { font-family: var(--font-mono); font-size: 11px; opacity: .75; }
+/* Strava sports, in a row under their transport mode. */
+.subchips { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; padding-left: 14px; border-left: 2px solid var(--line); margin: -2px 0 2px 10px; }
+.chip.sub { font-size: 12px; padding: 5px 10px; }
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel); }
 .seg button { border: 0; background: none; color: var(--muted); padding: 7px 12px; font-size: 13px; cursor: pointer; white-space: nowrap; }
 .seg button + button { border-left: 1px solid var(--line); }

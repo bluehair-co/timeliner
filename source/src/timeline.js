@@ -42,7 +42,7 @@ function tlRender(force) {
     } else if (TL.type[k] === 1) {
       var i = TL.ref[k], m = modeOf(i), ms = D.end[i] - D.start[i];
       out += '<div class="tl-item" ' + top + '><button type="button" class="tl-trip" data-i="' + i + '" aria-pressed="' + (i === TL.sel) + '">' + badge(m, false, D.est[i] & 16) +
-        '<span class="t"><b>' + esc(tripRoute(i)) + '</b><small>' + (LABEL[m] || m) + simTag(i) + ' · ' + clock(D.start[i], D.off[i]) + (ms > 0 ? '–' + clock(D.end[i], D.off[i]) : '') + (D.est[i] & 16 ? ' · Strava' : D.est[i] & 4 ? ' · type guessed' : '') + '</small></span>' +
+        '<span class="t"><b>' + esc(tripRoute(i)) + '</b><small>' + tripLabel(i) + simTag(i) + ' · ' + clock(D.start[i], D.off[i]) + (ms > 0 ? '–' + clock(D.end[i], D.off[i]) : '') + (D.est[i] & 16 ? ' · Strava' : D.est[i] & 4 ? ' · type guessed' : '') + '</small></span>' +
         '<span class="r">' + dist(D.km[i]) + '<small>' + (ms > 0 ? duration(ms) : '') + '</small></span></button></div>';
     } else {
       out += '<div class="tl-item tl-end" ' + top + '>' + (sel.length ? 'That\'s all ' + tripsText(sel.length) + ' for ' + esc(filterText()) + '.' : 'No trips match your filters.') + '</div>';
@@ -86,7 +86,7 @@ function tlSelect(i, scroll) {
     }
   }
   var m = modeOf(i), ms = D.end[i] - D.start[i];
-  $('tlMapInfo').innerHTML = badge(m, true) + '<span class="t" style="flex:1"><b>' + esc(tripRoute(i)) + '</b><small>' + (LABEL[m] || m) + simTag(i) + ' · ' + niceDate(D.day[i]) + ', ' + clock(D.start[i], D.off[i]) +
+  $('tlMapInfo').innerHTML = badge(m, true) + '<span class="t" style="flex:1"><b>' + esc(tripRoute(i)) + '</b><small>' + tripLabel(i) + simTag(i) + ' · ' + niceDate(D.day[i]) + ', ' + clock(D.start[i], D.off[i]) +
     ' · ' + dist(D.km[i]) + (ms > 0 ? ' · ' + duration(ms) : '') + '</small></span><button type="button" class="btn quiet" data-details="' + i + '" style="padding:6px 10px">Details</button>';
   var k = -1;
   for (var q = 0; q < TL.ref.length; q++) if (TL.type[q] === 1 && TL.ref[q] === i) { k = q; break; }

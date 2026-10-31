@@ -92,6 +92,9 @@ svg.stroke { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: 
 .chip svg.ic { width: 16px; height: 16px; }
 .chip[aria-pressed="true"] { background: var(--chip-on-bg); color: var(--chip-on-fg); border-color: transparent; }
 .chip .n { font-family: var(--font-mono); font-size: 11px; opacity: .75; }
+/* Strava sports, in a row under their transport mode. */
+.subchips { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; padding-left: 14px; border-left: 2px solid var(--line); margin: -2px 0 2px 10px; }
+.chip.sub { font-size: 12px; padding: 5px 10px; }
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel); }
 .seg button { border: 0; background: none; color: var(--muted); padding: 7px 12px; font-size: 13px; cursor: pointer; white-space: nowrap; }
 .seg button + button { border-left: 1px solid var(--line); }
@@ -1363,20 +1366,59 @@ var STRAVA = 16;
 var NO_STRAVA = 'No Strava activities with GPS were found in this file.';
 function isStravaName(name) { return /\.(zip|gpx|tcx|fit)(\.gz)?$/i.test(name); }
 
-// Activity type → mode. Covers Strava's English names, the numbers its GPX files use,
-// and a few translated names. null means skip (virtual rides happen on a map that isn't the world).
-function stravaMode(t) {
+// Strava's sports. Each one belongs to a transport mode (its parent in the filters and the
+// colour on the map) and is kept on the trip as its index in SPORTS (0 = none). They are
+// matched by their English names and common translations, in this order, so the more
+// specific names (E-Mountain Bike Ride, Trail Run…) are tried before the general ones.
+var SPORTS = [null,
+  ['emtb', 'E-mountain bike', 'CYCLING', /e-?mountain|e-?mtb/],
+  ['mtb', 'Mountain bike', 'CYCLING', /mountain|mtb|vtt|ciclismo de monta|bicicleta de monta/],
+  ['ebike', 'E-bike', 'CYCLING', /e-?bike|elektr|électrique|eléctrica|elettrica/],
+  ['gravel', 'Gravel ride', 'CYCLING', /gravel/],
+  ['velomobile', 'Velomobile', 'CYCLING', /velomobil/],
+  ['handcycle', 'Handcycle', 'CYCLING', /handcycl|handbike/],
+  ['ride', 'Ride', 'CYCLING', /ride|bik|cycl|fiets|bici|v[ée]lo|rad/],
+  ['trailrun', 'Trail run', 'RUNNING', /trail|carrera por monta/],
+  ['run', 'Run', 'RUNNING', /\brun|hardloop|carrera|course|lauf|corsa|corrida/],
+  ['rollerski', 'Roller ski', 'OTHER', /roller.?ski|rollski|skiroll/],
+  ['backcountry', 'Backcountry ski', 'SKIING', /backcountry|skitour|ski de rando|randonnée à ski|travesía|alpinisme/],
+  ['nordic', 'Nordic ski', 'SKIING', /nordic|cross.?country|langlauf|fondo|nordique|de fond|nórdico|langlaufen/],
+  ['snowboard', 'Snowboard', 'SKIING', /snowboard/],
+  ['snowshoe', 'Snowshoe', 'SKIING', /snowshoe|schneeschuh|raquette|sneeuwschoen|raquetas/],
+  ['iceskate', 'Ice skate', 'SKIING', /ice.?skat|eislauf|schaats|patinaje sobre hielo|patin à glace/],
+  ['alpine', 'Alpine ski', 'SKIING', /ski|esqu[ií]/],
+  ['wheelchair', 'Wheelchair', 'WALKING', /wheelchair|rollstuhl|rolstoel|fauteuil|silla de ruedas/],
+  ['hike', 'Hike', 'WALKING', /hik|wanderung|senderismo|randonn|escursion|caminhada/],
+  ['walk', 'Walk', 'WALKING', /walk|wandel|spazier|camin|marche|passeggiat/],
+  ['kayak', 'Kayaking', 'BOAT', /kayak|kajak/],
+  ['canoe', 'Canoeing', 'BOAT', /cano|kano/],
+  ['sup', 'Stand-up paddle', 'BOAT', /stand.?up|paddl|\bsup\b/],
+  ['row', 'Rowing', 'BOAT', /row|roei|remo|aviron|ruder|rudern/],
+  ['kitesurf', 'Kitesurf', 'BOAT', /kite/],
+  ['windsurf', 'Windsurf', 'BOAT', /windsurf/],
+  ['surf', 'Surfing', 'BOAT', /surf/],
+  ['sail', 'Sailing', 'BOAT', /sail|zeil|segel|vela\b|voile/],
+  ['swim', 'Swim', 'BOAT', /swim|zwem|schwimm|nataci|nuoto|natação|nage/],
+  ['skateboard', 'Skateboard', 'OTHER', /skateboard/],
+  ['inline', 'Inline skate', 'OTHER', /inline|skeeler|skat/],
+  ['golf', 'Golf', 'OTHER', /golf/],
+  ['climb', 'Climbing', 'OTHER', /climb|klett|klim|escalad|arrampic/],
+  ['workout', 'Workout', 'OTHER', /workout|training|crossfit|hiit|weight|yoga|pilates|ellipti|stair|entrenamiento|entraînement/]
+];
+// Strava's GPX files give the type as a number, FIT files as their own number.
+var GPX_TYPE = { 1: 'Ride', 4: 'Hike', 9: 'Run', 10: 'Walk', 18: 'Ride' };
+var FIT_SPORT = { 1: 'Run', 2: 'Ride', 5: 'Swim', 11: 'Walk', 12: 'Nordic Ski', 13: 'Alpine Ski', 14: 'Snowboard', 15: 'Rowing', 17: 'Hike',
+  21: 'E-Bike Ride', 30: 'Inline Skate', 31: 'Rock Climbing', 32: 'Sail', 33: 'Ice Skate', 35: 'Snowshoe', 37: 'Stand Up Paddling',
+  38: 'Surfing', 41: 'Kayaking', 43: 'Windsurf', 44: 'Kitesurf' };
+// Activity type → { mode, sport }. mode null means skip (virtual rides happen on a map that
+// isn't the world); a type that matches no sport keeps sport 0 and a mode guessed from speed.
+function stravaSport(t) {
   var s = String(t == null ? '' : t).trim().toLowerCase();
-  if (!s) return 'UNKNOWN';
-  var num = { 1: 'CYCLING', 4: 'WALKING', 9: 'RUNNING', 10: 'WALKING', 17: null, 18: 'CYCLING' };
-  if (/^\d+$/.test(s)) return s in num ? num[s] : 'UNKNOWN';
-  if (/virtu/.test(s)) return null;
-  if (/ride|bik|cycl|velomobile|fiets|bici|v[ée]lo|rad/.test(s)) return 'CYCLING';
-  if (/run|hardloop|carrera|course|lauf/.test(s)) return 'RUNNING';
-  if (/walk|hik|wandel|camin|marche|senderismo|randonn/.test(s)) return 'WALKING';
-  if (/ski|snowboard/.test(s)) return 'SKIING';
-  if (/kayak|canoe|row|paddl|sail|kitesurf|windsurf/.test(s)) return 'BOAT';
-  return normMode(s);
+  if (/^\d+$/.test(s)) { if (s === '17') return { mode: null, sport: 0 }; s = (GPX_TYPE[s] || '').toLowerCase(); }
+  if (!s) return { mode: 'UNKNOWN', sport: 0 };
+  if (/virtu/.test(s)) return { mode: null, sport: 0 };
+  for (var k = 1; k < SPORTS.length; k++) if (SPORTS[k][3].test(s)) return { mode: SPORTS[k][2], sport: k };
+  return { mode: normMode(s), sport: 0 };
 }
 
 function gunzip(buf) {
@@ -1405,10 +1447,10 @@ function readTcx(txt) {
 }
 // FIT is Garmin's binary format. Only the record messages (time and position) and the
 // sport are read; everything else is skipped by the sizes its definitions give.
-var FIT_EPOCH = 631065600000, FIT_SPORT = { 1: 'RUNNING', 2: 'CYCLING', 11: 'WALKING', 17: 'WALKING', 21: 'CYCLING', 12: 'SKIING', 13: 'SKIING', 14: 'SKIING', 15: 'BOAT', 37: 'BOAT', 41: 'BOAT' };
+var FIT_EPOCH = 631065600000;
 function readFit(buf) {
   var v = new DataView(buf), hs = v.getUint8(0), end = Math.min(buf.byteLength, hs + v.getUint32(4, true)), p = hs;
-  var defs = {}, lastTs = 0, pts = [], ts = [], sport = null, virtual = false;
+  var defs = {}, lastTs = 0, pts = [], ts = [], sport = null, subSport = null, virtual = false;
   while (p < end) {
     var h = v.getUint8(p++), local, d, ct = null;
     if (h & 0x80) { local = (h >> 5) & 3; var o = h & 0x1f; ct = (lastTs & ~0x1f) + o; if (o < (lastTs & 0x1f)) ct += 0x20; }
@@ -1437,11 +1479,13 @@ function readFit(buf) {
       }
     } else if (d.g === 18 || d.g === 12) {
       var sp = rec[d.g === 18 ? 5 : 0], sub = rec[d.g === 18 ? 6 : 1];
-      if (sp != null && sp !== 255 && sport == null) sport = sp;
+      if (sp != null && sp !== 255 && sport == null) { sport = sp; subSport = sub; }
       if (sub === 58 || sub === 6) virtual = true;
     }
   }
-  return { type: '', mode: virtual ? null : sport == null ? 'UNKNOWN' : FIT_SPORT[sport] || 'UNKNOWN', pts: pts, ts: ts };
+  // Mountain bike and trail run are cycling and running with a sub-sport.
+  var name = sport === 2 && subSport === 8 ? 'Mountain Bike Ride' : sport === 1 && subSport === 3 ? 'Trail Run' : FIT_SPORT[sport] || '';
+  return { type: virtual ? 'virtual' : name, pts: pts, ts: ts };
 }
 function readActivity(name, buf) {
   var n = name.replace(/\.gz$/i, '');
@@ -1469,7 +1513,8 @@ function simplify(pts, tol) {
   for (i = 0; i < n; i++) if (keep[i]) out.push(i);
   return out;
 }
-function addStrava(c, mode, a) {
+function addStrava(c, type, a) {
+  var st = stravaSport(type), mode = st.mode;
   if (mode === null || a.pts.length < 2) return false;
   // Keep time order and drop repeated timestamps (paused recordings can repeat them).
   var pts = [], ts = [], i;
@@ -1480,19 +1525,22 @@ function addStrava(c, mode, a) {
   var inner = keep.slice(1, -1), n = pts.length - 1, before = c.start.length;
   c.add(mode || 'UNKNOWN', { ms: ts[0], off: null }, { ms: ts[n], off: null }, dist, 1, pts[0], pts[n],
     inner.map(function (i) { return pts[i]; }), inner.map(function (i) { return ts[i]; }));
-  return c.start.length > before;
+  if (c.start.length === before) return false;
+  (c.sport || (c.sport = [])).push(st.sport);
+  return true;
 }
 function finishStrava(c) {
   if (!c.start.length) throw new Error(NO_STRAVA);
   var r = finish(c, SRC.strava);
   for (var i = 0; i < r.est.length; i++) r.est[i] |= STRAVA;
+  r.sport = Uint8Array.from(c.sport);
   r.strava = true;
   return r;
 }
 function parseStravaFile(file) {
   return file.arrayBuffer().then(function (buf) { return maybeGunzip(file.name, buf); }).then(function (buf) {
     var c = new Collector(), a = readActivity(file.name, buf);
-    addStrava(c, a.mode !== undefined ? a.mode : stravaMode(a.type), a);
+    addStrava(c, a.type, a);
     return finishStrava(c);
   });
 }
@@ -1587,8 +1635,7 @@ function parseStravaZip(file, onProgress) {
       var en = acts[i], key = en.name.replace(/^.*?(activities\/)/, '$1');
       return zipRead(file, en).then(function (b) { return maybeGunzip(en.name, b); }).then(function (b) {
         var a = readActivity(en.name, b), t = types[key];
-        var mode = t != null && t !== '' ? stravaMode(t) : a.mode !== undefined ? a.mode : stravaMode(a.type);
-        if (!addStrava(c, mode, a)) skipped++;
+        if (!addStrava(c, t != null && t !== '' ? t : a.type, a)) skipped++;
       }).catch(function () { skipped++; }).then(function () {
         if (i % 20 === 0) onProgress((i + 1) / acts.length);
         return step(null, i + 1);
@@ -1628,7 +1675,7 @@ if (typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScop
     })(0);
   };
 }
-if (typeof module !== 'undefined') module.exports = { PATH_TRIP: PATH_TRIP, parseTimeline: parseTimeline, withTrack: withTrack, mergeTracks: mergeTracks, RECORDS_GPS: RECORDS_GPS, MODES: MODES, normMode: normMode, km: km, SRC: SRC, NO_OFF: NO_OFF, parseFile: parseFile, STRAVA: STRAVA };
+if (typeof module !== 'undefined') module.exports = { PATH_TRIP: PATH_TRIP, parseTimeline: parseTimeline, withTrack: withTrack, mergeTracks: mergeTracks, RECORDS_GPS: RECORDS_GPS, MODES: MODES, normMode: normMode, km: km, SRC: SRC, NO_OFF: NO_OFF, parseFile: parseFile, STRAVA: STRAVA, SPORTS: SPORTS, stravaSport: stravaSport };
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
@@ -1713,6 +1760,8 @@ GROUPS.forEach(function (g) { g.color = 'var(' + g.v + ')'; g.modes.forEach(func
 function groupOf(m) { return GROUP_OF[m] || GROUPS[GROUPS.length - 1]; }
 function modeColor(m) { return groupOf(m).color; }
 function modeOf(i) { return MODES[D.mode[i]]; }
+// A trip's name: its Strava sport (Kayaking, Mountain bike…) when it has one, else its mode.
+function tripLabel(i) { var s = D.sport && D.sport[i]; if (s && SPORTS[s]) return SPORTS[s][1]; var m = modeOf(i); return LABEL[m] || m; }
 // strava adds Strava's mark in the top right corner.
 var STRAVA_MARK = '<span class="strava-mark" title="From Strava"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.6 1.5 11 10H8.4L6.6 6.6 4.8 10H2.2zM10.3 10.6l1.2 2.4 1.2-2.4h1.9l-3.1 6-3.1-6z" fill="#fff"/></svg></span>';
 // Trips from a simulated file (see merge) get a "Simulated" tag wherever they are shown.
@@ -2084,13 +2133,15 @@ function setData(R) {
   RAW = upgrade(R);
   D = withStrava(RAW);
   $('app').classList.remove('no-data');
-  var n = D.day.length, nv = D.vs.length, i, yc = {}, present = {};
+  var n = D.day.length, nv = D.vs.length, i, yc = {}, present = {}, sp = {};
+  if (!D.sport) D.sport = new Uint8Array(n);
   D.year = new Int16Array(n); D.month = new Int8Array(n); D.dow = new Int8Array(n); D.hour = new Int8Array(n);
   for (i = 0; i < n; i++) {
     var x = dayToDate(D.day[i]);
     D.year[i] = x.getUTCFullYear(); D.month[i] = x.getUTCMonth(); D.dow[i] = x.getUTCDay();
     D.hour[i] = localHour(D.start[i], D.off[i]);
     yc[D.year[i]] = 1; present[MODES[D.mode[i]]] = 1;
+    if (D.sport[i]) sp[D.sport[i]] = (sp[D.sport[i]] || 0) + 1;
   }
   D.vyear = new Int16Array(nv); D.vmonth = new Int8Array(nv); D.vdow = new Int8Array(nv);
   for (i = 0; i < nv; i++) {
@@ -2113,7 +2164,9 @@ function setData(R) {
     modes: MODES.filter(function (m) { return present[m]; }),
     countries: D.ccList.map(function (_, k) { return k; }).filter(function (k) { return D.ccCount[k] > 0; })
       .sort(function (a, b) { return D.ccCount[b] - D.ccCount[a]; }),
-    minD: minD, maxD: maxD, anyGuess: anyGuess, navDays: []
+    minD: minD, maxD: maxD, anyGuess: anyGuess, navDays: [],
+    // Strava sports present, by mode, in the order SPORTS lists them.
+    sports: Object.keys(sp).map(Number).sort(function (a, b) { return a - b; }), sportN: sp
   };
   F = defaultFilters();
   buildFilterUI();
@@ -2135,7 +2188,7 @@ function defaultFilters() {
   return {
     dm: 'week', one: M.maxD, unit: 'day', from: wk[0], to: wk[1],
     years: new Set(M.years), months: new Set([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]), dows: new Set([0, 1, 2, 3, 4, 5, 6]),
-    h0: 0, h1: 24, modes: new Set(M.modes), countries: new Set(M.countries), guess: 'all', src: 'all'
+    h0: 0, h1: 24, modes: new Set(M.modes), sports: new Set(M.sports), countries: new Set(M.countries), guess: 'all', src: 'all'
   };
 }
 function activeFilters() {
@@ -2145,7 +2198,7 @@ function activeFilters() {
   if (F.months.size !== 12) k++;
   if (F.dows.size !== 7) k++;
   if (F.h0 !== 0 || F.h1 !== 24) k++;
-  if (F.modes.size !== M.modes.length) k++;
+  if (F.modes.size !== M.modes.length || F.sports.size !== M.sports.length) k++;
   if (F.countries.size !== M.countries.length) k++;
   if (F.guess !== 'all') k++;
   if (F.src !== 'all') k++;
@@ -2166,7 +2219,7 @@ function apply() {
   var allCC = F.countries.size === M.countries.length, anyHour = F.h0 === 0 && F.h1 === 24;
   for (k = 0; k < ord.length; k++) {
     i = ord[k];
-    if (!modeOk[D.mode[i]] || !F.years.has(D.year[i]) || !F.months.has(D.month[i]) || !F.dows.has(D.dow[i])) continue;
+    if (!modeOk[D.mode[i]] || D.sport[i] && !F.sports.has(D.sport[i]) || !F.years.has(D.year[i]) || !F.months.has(D.month[i]) || !F.dows.has(D.dow[i])) continue;
     if (F.guess === 'no' && D.est[i] & 4) continue;
     if (F.guess === 'only' && !(D.est[i] & 4)) continue;
     if (F.src !== 'all' && !(D.est[i] & STRAVA) === (F.src === 'strava')) continue;
@@ -2216,8 +2269,11 @@ function buildFilterUI() {
     return '<button type="button" class="chip" data-f="group" data-v="' + g.key + '" aria-pressed="false"><i style="width:10px;height:10px;border-radius:3px;display:block;background:' + g.color + '"></i>' + g.label + '</button>';
   }).join('') : '';
   $('groupChips').hidden = groups.length < 2;
+  // A mode with Strava sports gets a row of chips for them under it.
   $('modes').innerHTML = M.modes.map(function (m) {
-    return chipHtml('modes', m, '<span style="color:' + modeColor(m) + ';display:flex">' + icon(m) + '</span>' + (LABEL[m] || m), mc[m]);
+    var subs = M.sports.filter(function (k) { return SPORTS[k][2] === m; });
+    return chipHtml('modes', m, '<span style="color:' + modeColor(m) + ';display:flex">' + icon(m) + '</span>' + (LABEL[m] || m), mc[m]) +
+      (subs.length ? '<div class="subchips" aria-label="' + (LABEL[m] || m) + ' on Strava">' + subs.map(function (k) { return chipHtml('sports', k, esc(SPORTS[k][1]), M.sportN[k]).replace('class="chip"', 'class="chip sub"'); }).join('') + '</div>' : '');
   }).join('');
   $('countries').innerHTML = M.countries.map(function (k) {
     var cc = D.ccList[k];
@@ -2234,6 +2290,8 @@ function buildFilterUI() {
   ['oneDay', 'from', 'to'].forEach(function (id) { $(id).min = lo; $(id).max = hi; });
   document.querySelectorAll('[data-pn="pick"]').forEach(function (e) { e.min = lo; e.max = hi; });
 }
+// Turn all of a mode's Strava sports on or off.
+function sportsOf(m, on) { M.sports.forEach(function (k) { if (SPORTS[k][2] === m) { if (on) F.sports.add(k); else F.sports.delete(k); } }); }
 function setPressed(sel_, fn) {
   document.querySelectorAll(sel_).forEach(function (b) { b.setAttribute('aria-pressed', fn(b) ? 'true' : 'false'); });
 }
@@ -2244,6 +2302,7 @@ function syncFilterUI() {
       var g = GROUPS.filter(function (x) { return x.key === v; })[0], have = g.modes.filter(function (m) { return M.modes.indexOf(m) >= 0; });
       return have.length > 0 && have.every(function (m) { return F.modes.has(m); });
     }
+    if (f === 'sports') return F.modes.has(SPORTS[+v][2]) && F.sports.has(+v);
     return F[f].has(f === 'modes' ? v : +v);
   });
   setPressed('#dayMode button', function (b) { return b.dataset.dm === F.dm; });
@@ -2268,13 +2327,19 @@ $('filtersSheet').addEventListener('click', function (ev) {
     if (f === 'group') {
       var g = GROUPS.filter(function (x) { return x.key === v; })[0], have = g.modes.filter(function (m) { return M.modes.indexOf(m) >= 0; });
       var on = have.every(function (m) { return F.modes.has(m); });
-      have.forEach(function (m) { if (on) F.modes.delete(m); else F.modes.add(m); });
+      have.forEach(function (m) { if (on) F.modes.delete(m); else { F.modes.add(m); sportsOf(m, true); } });
+    } else if (f === 'sports') {
+      // Turning a sport on also turns its mode on, keeping only that sport if the mode was off.
+      var k = +v, pm = SPORTS[k][2];
+      if (!F.modes.has(pm)) { F.modes.add(pm); sportsOf(pm, false); F.sports.add(k); }
+      else if (F.sports.has(k)) F.sports.delete(k); else F.sports.add(k);
     } else {
       var val = f === 'modes' ? v : +v, s = F[f];
-      if (s.has(val)) s.delete(val); else s.add(val);
+      if (s.has(val)) s.delete(val); else { s.add(val); if (f === 'modes') sportsOf(val, true); }
     }
   } else if (b.dataset.q) {
     var all = b.dataset.all === '1', q = b.dataset.q;
+    if (q === 'modes') F.sports = new Set(all ? M.sports : []);
     F[q] = new Set(all ? { years: M.years, months: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], dows: [0, 1, 2, 3, 4, 5, 6], modes: M.modes, countries: M.countries }[q] : []);
   } else if (b.dataset.dm) {
     F.dm = b.dataset.dm;
@@ -2596,7 +2661,14 @@ function merge(base, parts) {
   var sall = (base && base.strava ? [base.strava] : []).concat(sv), sidx = [];
   sall.forEach(function (p, pi) { for (var i = 0; i < p.start.length; i++) sidx.push([pi, i]); });
   sidx.sort(function (a, b) { return sall[a[0]].start[a[1]] - sall[b[0]].start[b[1]]; });
-  sidx = sidx.filter(function (x, j) { return !j || sall[x[0]].start[x[1]] - sall[sidx[j - 1][0]].start[sidx[j - 1][1]] > 60000; });
+  // The newer file's copy wins, so loading an export again picks up what this version reads from it (such as the sport).
+  var skeep = [];
+  sidx.forEach(function (x) {
+    var L = skeep[skeep.length - 1];
+    if (L && sall[x[0]].start[x[1]] - sall[L[0]].start[L[1]] <= 60000) { if (x[0] > L[0]) skeep[skeep.length - 1] = x; }
+    else skeep.push(x);
+  });
+  sidx = skeep;
   if (sidx.length) R.strava = gather(sall, sidx, function () { return SRC.strava; });
   return R;
 }
@@ -2604,7 +2676,7 @@ function merge(base, parts) {
 function gather(all, out, src) {
   var n = out.length, npts = 0;
   var R = { start: new Float64Array(n), end: new Float64Array(n), day: new Int32Array(n), mode: new Uint8Array(n),
-    km: new Float32Array(n), est: new Uint8Array(n), off: new Int16Array(n), orig: new Float32Array(n), from: new Float32Array(2 * n), to: new Float32Array(2 * n), srcs: new Uint8Array(n) };
+    km: new Float32Array(n), est: new Uint8Array(n), off: new Int16Array(n), orig: new Float32Array(n), from: new Float32Array(2 * n), to: new Float32Array(2 * n), srcs: new Uint8Array(n), sport: new Uint8Array(n) };
   out.forEach(function (x) { var p = all[x[0]]; npts += p.pathOff[x[1] + 1] - p.pathOff[x[1]]; });
   R.pathPts = new Float32Array(2 * npts); R.pathT = new Float32Array(npts); R.pathOff = new Uint32Array(n + 1);
   var w = 0;
@@ -2613,7 +2685,7 @@ function gather(all, out, src) {
     R.start[j] = p.start[i]; R.end[j] = p.end[i]; R.day[j] = p.day[i]; R.mode[j] = p.mode[i]; R.km[j] = p.km[i]; R.est[j] = p.est[i];
     R.off[j] = p.off ? p.off[i] : NO_OFF; R.orig[j] = p.orig ? p.orig[i] : 0;
     R.from[2 * j] = p.from[2 * i]; R.from[2 * j + 1] = p.from[2 * i + 1]; R.to[2 * j] = p.to[2 * i]; R.to[2 * j + 1] = p.to[2 * i + 1];
-    R.srcs[j] = src(p, i);
+    R.srcs[j] = src(p, i); R.sport[j] = p.sport ? p.sport[i] : 0;
     for (var q = p.pathOff[i]; q < p.pathOff[i + 1]; q++, w++) { R.pathPts[2 * w] = p.pathPts[2 * q]; R.pathPts[2 * w + 1] = p.pathPts[2 * q + 1]; R.pathT[w] = p.pathT[q]; }
     R.pathOff[j + 1] = w;
   });
@@ -3005,7 +3077,7 @@ function onMapHover(e) {
 function hoverHtml(list) {
   var rows = list.slice(0, 5).map(function (i) {
     var m = modeOf(i);
-    return '<div class="row"><span><i style="background:' + modeColor(m) + '"></i>' + (LABEL[m] || m) + ' · ' + niceDate(D.day[i]) + '</span><span class="num">' + dist(D.km[i]) + '</span></div>';
+    return '<div class="row"><span><i style="background:' + modeColor(m) + '"></i>' + tripLabel(i) + ' · ' + niceDate(D.day[i]) + '</span><span class="num">' + dist(D.km[i]) + '</span></div>';
   }).join('');
   return '<b>' + (list.length === 1 ? esc(tripRoute(list[0])) : fmt(list.length) + ' trips here') + '</b>' + rows +
     (list.length > 5 ? '<div class="row"><span>+' + fmt(list.length - 5) + ' more</span></div>' : '');
@@ -3066,7 +3138,7 @@ function tripRows(i) {
 }
 function tripHead(i, sub) {
   var m = modeOf(i), r = tripRows(i);
-  return '<div class="trip-head">' + badge(m, false, D.est[i] & 16) + '<div><h3>' + (LABEL[m] || m) + (D.est[i] & 4 ? ' <span class="guess">Guessed</span>' : '') + simTag(i) + '</h3><p>' + (sub || longDate(D.day[i]) + ' · ' + r.t0.time) + '</p></div></div>';
+  return '<div class="trip-head">' + badge(m, false, D.est[i] & 16) + '<div><h3>' + tripLabel(i) + (D.est[i] & 4 ? ' <span class="guess">Guessed</span>' : '') + simTag(i) + '</h3><p>' + (sub || longDate(D.day[i]) + ' · ' + r.t0.time) + '</p></div></div>';
 }
 function openTrip(i, fromList) {
   var r = tripRows(i);
@@ -3093,7 +3165,7 @@ function openList(list) {
 }
 function tripRowHtml(i, withDate) {
   var m = modeOf(i);
-  return '<button type="button" class="hit-row" data-i="' + i + '">' + badge(m, true) + '<span class="t"><b>' + esc(tripRoute(i)) + '</b><small>' + (LABEL[m] || m) + simTag(i) + ' · ' + (withDate ? niceDate(D.day[i]) + ', ' : '') + clock(D.start[i], D.off[i]) + '</small></span>' +
+  return '<button type="button" class="hit-row" data-i="' + i + '">' + badge(m, true) + '<span class="t"><b>' + esc(tripRoute(i)) + '</b><small>' + tripLabel(i) + simTag(i) + ' · ' + (withDate ? niceDate(D.day[i]) + ', ' : '') + clock(D.start[i], D.off[i]) + '</small></span>' +
     '<span class="r num">' + dist(D.km[i]) + '<small>' + (D.end[i] > D.start[i] ? duration(D.end[i] - D.start[i]) : '') + '</small></span></button>';
 }
 $('tripBody').addEventListener('click', function (ev) {
@@ -4350,7 +4422,7 @@ function tlRender(force) {
     } else if (TL.type[k] === 1) {
       var i = TL.ref[k], m = modeOf(i), ms = D.end[i] - D.start[i];
       out += '<div class="tl-item" ' + top + '><button type="button" class="tl-trip" data-i="' + i + '" aria-pressed="' + (i === TL.sel) + '">' + badge(m, false, D.est[i] & 16) +
-        '<span class="t"><b>' + esc(tripRoute(i)) + '</b><small>' + (LABEL[m] || m) + simTag(i) + ' · ' + clock(D.start[i], D.off[i]) + (ms > 0 ? '–' + clock(D.end[i], D.off[i]) : '') + (D.est[i] & 16 ? ' · Strava' : D.est[i] & 4 ? ' · type guessed' : '') + '</small></span>' +
+        '<span class="t"><b>' + esc(tripRoute(i)) + '</b><small>' + tripLabel(i) + simTag(i) + ' · ' + clock(D.start[i], D.off[i]) + (ms > 0 ? '–' + clock(D.end[i], D.off[i]) : '') + (D.est[i] & 16 ? ' · Strava' : D.est[i] & 4 ? ' · type guessed' : '') + '</small></span>' +
         '<span class="r">' + dist(D.km[i]) + '<small>' + (ms > 0 ? duration(ms) : '') + '</small></span></button></div>';
     } else {
       out += '<div class="tl-item tl-end" ' + top + '>' + (sel.length ? 'That\'s all ' + tripsText(sel.length) + ' for ' + esc(filterText()) + '.' : 'No trips match your filters.') + '</div>';
@@ -4394,7 +4466,7 @@ function tlSelect(i, scroll) {
     }
   }
   var m = modeOf(i), ms = D.end[i] - D.start[i];
-  $('tlMapInfo').innerHTML = badge(m, true) + '<span class="t" style="flex:1"><b>' + esc(tripRoute(i)) + '</b><small>' + (LABEL[m] || m) + simTag(i) + ' · ' + niceDate(D.day[i]) + ', ' + clock(D.start[i], D.off[i]) +
+  $('tlMapInfo').innerHTML = badge(m, true) + '<span class="t" style="flex:1"><b>' + esc(tripRoute(i)) + '</b><small>' + tripLabel(i) + simTag(i) + ' · ' + niceDate(D.day[i]) + ', ' + clock(D.start[i], D.off[i]) +
     ' · ' + dist(D.km[i]) + (ms > 0 ? ' · ' + duration(ms) : '') + '</small></span><button type="button" class="btn quiet" data-details="' + i + '" style="padding:6px 10px">Details</button>';
   var k = -1;
   for (var q = 0; q < TL.ref.length; q++) if (TL.type[q] === 1 && TL.ref[q] === i) { k = q; break; }

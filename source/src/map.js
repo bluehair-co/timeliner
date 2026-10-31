@@ -225,7 +225,7 @@ function onMapHover(e) {
 function hoverHtml(list) {
   var rows = list.slice(0, 5).map(function (i) {
     var m = modeOf(i);
-    return '<div class="row"><span><i style="background:' + modeColor(m) + '"></i>' + (LABEL[m] || m) + ' · ' + niceDate(D.day[i]) + '</span><span class="num">' + dist(D.km[i]) + '</span></div>';
+    return '<div class="row"><span><i style="background:' + modeColor(m) + '"></i>' + tripLabel(i) + ' · ' + niceDate(D.day[i]) + '</span><span class="num">' + dist(D.km[i]) + '</span></div>';
   }).join('');
   return '<b>' + (list.length === 1 ? esc(tripRoute(list[0])) : fmt(list.length) + ' trips here') + '</b>' + rows +
     (list.length > 5 ? '<div class="row"><span>+' + fmt(list.length - 5) + ' more</span></div>' : '');
@@ -286,7 +286,7 @@ function tripRows(i) {
 }
 function tripHead(i, sub) {
   var m = modeOf(i), r = tripRows(i);
-  return '<div class="trip-head">' + badge(m, false, D.est[i] & 16) + '<div><h3>' + (LABEL[m] || m) + (D.est[i] & 4 ? ' <span class="guess">Guessed</span>' : '') + simTag(i) + '</h3><p>' + (sub || longDate(D.day[i]) + ' · ' + r.t0.time) + '</p></div></div>';
+  return '<div class="trip-head">' + badge(m, false, D.est[i] & 16) + '<div><h3>' + tripLabel(i) + (D.est[i] & 4 ? ' <span class="guess">Guessed</span>' : '') + simTag(i) + '</h3><p>' + (sub || longDate(D.day[i]) + ' · ' + r.t0.time) + '</p></div></div>';
 }
 function openTrip(i, fromList) {
   var r = tripRows(i);
@@ -313,7 +313,7 @@ function openList(list) {
 }
 function tripRowHtml(i, withDate) {
   var m = modeOf(i);
-  return '<button type="button" class="hit-row" data-i="' + i + '">' + badge(m, true) + '<span class="t"><b>' + esc(tripRoute(i)) + '</b><small>' + (LABEL[m] || m) + simTag(i) + ' · ' + (withDate ? niceDate(D.day[i]) + ', ' : '') + clock(D.start[i], D.off[i]) + '</small></span>' +
+  return '<button type="button" class="hit-row" data-i="' + i + '">' + badge(m, true) + '<span class="t"><b>' + esc(tripRoute(i)) + '</b><small>' + tripLabel(i) + simTag(i) + ' · ' + (withDate ? niceDate(D.day[i]) + ', ' : '') + clock(D.start[i], D.off[i]) + '</small></span>' +
     '<span class="r num">' + dist(D.km[i]) + '<small>' + (D.end[i] > D.start[i] ? duration(D.end[i] - D.start[i]) : '') + '</small></span></button>';
 }
 $('tripBody').addEventListener('click', function (ev) {

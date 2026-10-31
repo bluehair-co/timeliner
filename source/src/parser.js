@@ -654,20 +654,59 @@ var STRAVA = 16;
 var NO_STRAVA = 'No Strava activities with GPS were found in this file.';
 function isStravaName(name) { return /\.(zip|gpx|tcx|fit)(\.gz)?$/i.test(name); }
 
-// Activity type → mode. Covers Strava's English names, the numbers its GPX files use,
-// and a few translated names. null means skip (virtual rides happen on a map that isn't the world).
-function stravaMode(t) {
+// Strava's sports. Each one belongs to a transport mode (its parent in the filters and the
+// colour on the map) and is kept on the trip as its index in SPORTS (0 = none). They are
+// matched by their English names and common translations, in this order, so the more
+// specific names (E-Mountain Bike Ride, Trail Run…) are tried before the general ones.
+var SPORTS = [null,
+  ['emtb', 'E-mountain bike', 'CYCLING', /e-?mountain|e-?mtb/],
+  ['mtb', 'Mountain bike', 'CYCLING', /mountain|mtb|vtt|ciclismo de monta|bicicleta de monta/],
+  ['ebike', 'E-bike', 'CYCLING', /e-?bike|elektr|électrique|eléctrica|elettrica/],
+  ['gravel', 'Gravel ride', 'CYCLING', /gravel/],
+  ['velomobile', 'Velomobile', 'CYCLING', /velomobil/],
+  ['handcycle', 'Handcycle', 'CYCLING', /handcycl|handbike/],
+  ['ride', 'Ride', 'CYCLING', /ride|bik|cycl|fiets|bici|v[ée]lo|rad/],
+  ['trailrun', 'Trail run', 'RUNNING', /trail|carrera por monta/],
+  ['run', 'Run', 'RUNNING', /\brun|hardloop|carrera|course|lauf|corsa|corrida/],
+  ['rollerski', 'Roller ski', 'OTHER', /roller.?ski|rollski|skiroll/],
+  ['backcountry', 'Backcountry ski', 'SKIING', /backcountry|skitour|ski de rando|randonnée à ski|travesía|alpinisme/],
+  ['nordic', 'Nordic ski', 'SKIING', /nordic|cross.?country|langlauf|fondo|nordique|de fond|nórdico|langlaufen/],
+  ['snowboard', 'Snowboard', 'SKIING', /snowboard/],
+  ['snowshoe', 'Snowshoe', 'SKIING', /snowshoe|schneeschuh|raquette|sneeuwschoen|raquetas/],
+  ['iceskate', 'Ice skate', 'SKIING', /ice.?skat|eislauf|schaats|patinaje sobre hielo|patin à glace/],
+  ['alpine', 'Alpine ski', 'SKIING', /ski|esqu[ií]/],
+  ['wheelchair', 'Wheelchair', 'WALKING', /wheelchair|rollstuhl|rolstoel|fauteuil|silla de ruedas/],
+  ['hike', 'Hike', 'WALKING', /hik|wanderung|senderismo|randonn|escursion|caminhada/],
+  ['walk', 'Walk', 'WALKING', /walk|wandel|spazier|camin|marche|passeggiat/],
+  ['kayak', 'Kayaking', 'BOAT', /kayak|kajak/],
+  ['canoe', 'Canoeing', 'BOAT', /cano|kano/],
+  ['sup', 'Stand-up paddle', 'BOAT', /stand.?up|paddl|\bsup\b/],
+  ['row', 'Rowing', 'BOAT', /row|roei|remo|aviron|ruder|rudern/],
+  ['kitesurf', 'Kitesurf', 'BOAT', /kite/],
+  ['windsurf', 'Windsurf', 'BOAT', /windsurf/],
+  ['surf', 'Surfing', 'BOAT', /surf/],
+  ['sail', 'Sailing', 'BOAT', /sail|zeil|segel|vela\b|voile/],
+  ['swim', 'Swim', 'BOAT', /swim|zwem|schwimm|nataci|nuoto|natação|nage/],
+  ['skateboard', 'Skateboard', 'OTHER', /skateboard/],
+  ['inline', 'Inline skate', 'OTHER', /inline|skeeler|skat/],
+  ['golf', 'Golf', 'OTHER', /golf/],
+  ['climb', 'Climbing', 'OTHER', /climb|klett|klim|escalad|arrampic/],
+  ['workout', 'Workout', 'OTHER', /workout|training|crossfit|hiit|weight|yoga|pilates|ellipti|stair|entrenamiento|entraînement/]
+];
+// Strava's GPX files give the type as a number, FIT files as their own number.
+var GPX_TYPE = { 1: 'Ride', 4: 'Hike', 9: 'Run', 10: 'Walk', 18: 'Ride' };
+var FIT_SPORT = { 1: 'Run', 2: 'Ride', 5: 'Swim', 11: 'Walk', 12: 'Nordic Ski', 13: 'Alpine Ski', 14: 'Snowboard', 15: 'Rowing', 17: 'Hike',
+  21: 'E-Bike Ride', 30: 'Inline Skate', 31: 'Rock Climbing', 32: 'Sail', 33: 'Ice Skate', 35: 'Snowshoe', 37: 'Stand Up Paddling',
+  38: 'Surfing', 41: 'Kayaking', 43: 'Windsurf', 44: 'Kitesurf' };
+// Activity type → { mode, sport }. mode null means skip (virtual rides happen on a map that
+// isn't the world); a type that matches no sport keeps sport 0 and a mode guessed from speed.
+function stravaSport(t) {
   var s = String(t == null ? '' : t).trim().toLowerCase();
-  if (!s) return 'UNKNOWN';
-  var num = { 1: 'CYCLING', 4: 'WALKING', 9: 'RUNNING', 10: 'WALKING', 17: null, 18: 'CYCLING' };
-  if (/^\d+$/.test(s)) return s in num ? num[s] : 'UNKNOWN';
-  if (/virtu/.test(s)) return null;
-  if (/ride|bik|cycl|velomobile|fiets|bici|v[ée]lo|rad/.test(s)) return 'CYCLING';
-  if (/run|hardloop|carrera|course|lauf/.test(s)) return 'RUNNING';
-  if (/walk|hik|wandel|camin|marche|senderismo|randonn/.test(s)) return 'WALKING';
-  if (/ski|snowboard/.test(s)) return 'SKIING';
-  if (/kayak|canoe|row|paddl|sail|kitesurf|windsurf/.test(s)) return 'BOAT';
-  return normMode(s);
+  if (/^\d+$/.test(s)) { if (s === '17') return { mode: null, sport: 0 }; s = (GPX_TYPE[s] || '').toLowerCase(); }
+  if (!s) return { mode: 'UNKNOWN', sport: 0 };
+  if (/virtu/.test(s)) return { mode: null, sport: 0 };
+  for (var k = 1; k < SPORTS.length; k++) if (SPORTS[k][3].test(s)) return { mode: SPORTS[k][2], sport: k };
+  return { mode: normMode(s), sport: 0 };
 }
 
 function gunzip(buf) {
@@ -696,10 +735,10 @@ function readTcx(txt) {
 }
 // FIT is Garmin's binary format. Only the record messages (time and position) and the
 // sport are read; everything else is skipped by the sizes its definitions give.
-var FIT_EPOCH = 631065600000, FIT_SPORT = { 1: 'RUNNING', 2: 'CYCLING', 11: 'WALKING', 17: 'WALKING', 21: 'CYCLING', 12: 'SKIING', 13: 'SKIING', 14: 'SKIING', 15: 'BOAT', 37: 'BOAT', 41: 'BOAT' };
+var FIT_EPOCH = 631065600000;
 function readFit(buf) {
   var v = new DataView(buf), hs = v.getUint8(0), end = Math.min(buf.byteLength, hs + v.getUint32(4, true)), p = hs;
-  var defs = {}, lastTs = 0, pts = [], ts = [], sport = null, virtual = false;
+  var defs = {}, lastTs = 0, pts = [], ts = [], sport = null, subSport = null, virtual = false;
   while (p < end) {
     var h = v.getUint8(p++), local, d, ct = null;
     if (h & 0x80) { local = (h >> 5) & 3; var o = h & 0x1f; ct = (lastTs & ~0x1f) + o; if (o < (lastTs & 0x1f)) ct += 0x20; }
@@ -728,11 +767,13 @@ function readFit(buf) {
       }
     } else if (d.g === 18 || d.g === 12) {
       var sp = rec[d.g === 18 ? 5 : 0], sub = rec[d.g === 18 ? 6 : 1];
-      if (sp != null && sp !== 255 && sport == null) sport = sp;
+      if (sp != null && sp !== 255 && sport == null) { sport = sp; subSport = sub; }
       if (sub === 58 || sub === 6) virtual = true;
     }
   }
-  return { type: '', mode: virtual ? null : sport == null ? 'UNKNOWN' : FIT_SPORT[sport] || 'UNKNOWN', pts: pts, ts: ts };
+  // Mountain bike and trail run are cycling and running with a sub-sport.
+  var name = sport === 2 && subSport === 8 ? 'Mountain Bike Ride' : sport === 1 && subSport === 3 ? 'Trail Run' : FIT_SPORT[sport] || '';
+  return { type: virtual ? 'virtual' : name, pts: pts, ts: ts };
 }
 function readActivity(name, buf) {
   var n = name.replace(/\.gz$/i, '');
@@ -760,7 +801,8 @@ function simplify(pts, tol) {
   for (i = 0; i < n; i++) if (keep[i]) out.push(i);
   return out;
 }
-function addStrava(c, mode, a) {
+function addStrava(c, type, a) {
+  var st = stravaSport(type), mode = st.mode;
   if (mode === null || a.pts.length < 2) return false;
   // Keep time order and drop repeated timestamps (paused recordings can repeat them).
   var pts = [], ts = [], i;
@@ -771,19 +813,22 @@ function addStrava(c, mode, a) {
   var inner = keep.slice(1, -1), n = pts.length - 1, before = c.start.length;
   c.add(mode || 'UNKNOWN', { ms: ts[0], off: null }, { ms: ts[n], off: null }, dist, 1, pts[0], pts[n],
     inner.map(function (i) { return pts[i]; }), inner.map(function (i) { return ts[i]; }));
-  return c.start.length > before;
+  if (c.start.length === before) return false;
+  (c.sport || (c.sport = [])).push(st.sport);
+  return true;
 }
 function finishStrava(c) {
   if (!c.start.length) throw new Error(NO_STRAVA);
   var r = finish(c, SRC.strava);
   for (var i = 0; i < r.est.length; i++) r.est[i] |= STRAVA;
+  r.sport = Uint8Array.from(c.sport);
   r.strava = true;
   return r;
 }
 function parseStravaFile(file) {
   return file.arrayBuffer().then(function (buf) { return maybeGunzip(file.name, buf); }).then(function (buf) {
     var c = new Collector(), a = readActivity(file.name, buf);
-    addStrava(c, a.mode !== undefined ? a.mode : stravaMode(a.type), a);
+    addStrava(c, a.type, a);
     return finishStrava(c);
   });
 }
@@ -878,8 +923,7 @@ function parseStravaZip(file, onProgress) {
       var en = acts[i], key = en.name.replace(/^.*?(activities\/)/, '$1');
       return zipRead(file, en).then(function (b) { return maybeGunzip(en.name, b); }).then(function (b) {
         var a = readActivity(en.name, b), t = types[key];
-        var mode = t != null && t !== '' ? stravaMode(t) : a.mode !== undefined ? a.mode : stravaMode(a.type);
-        if (!addStrava(c, mode, a)) skipped++;
+        if (!addStrava(c, t != null && t !== '' ? t : a.type, a)) skipped++;
       }).catch(function () { skipped++; }).then(function () {
         if (i % 20 === 0) onProgress((i + 1) / acts.length);
         return step(null, i + 1);
@@ -919,4 +963,4 @@ if (typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScop
     })(0);
   };
 }
-if (typeof module !== 'undefined') module.exports = { PATH_TRIP: PATH_TRIP, parseTimeline: parseTimeline, withTrack: withTrack, mergeTracks: mergeTracks, RECORDS_GPS: RECORDS_GPS, MODES: MODES, normMode: normMode, km: km, SRC: SRC, NO_OFF: NO_OFF, parseFile: parseFile, STRAVA: STRAVA };
+if (typeof module !== 'undefined') module.exports = { PATH_TRIP: PATH_TRIP, parseTimeline: parseTimeline, withTrack: withTrack, mergeTracks: mergeTracks, RECORDS_GPS: RECORDS_GPS, MODES: MODES, normMode: normMode, km: km, SRC: SRC, NO_OFF: NO_OFF, parseFile: parseFile, STRAVA: STRAVA, SPORTS: SPORTS, stravaSport: stravaSport };

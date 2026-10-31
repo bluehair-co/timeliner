@@ -1963,6 +1963,21 @@ function zoneAt(lat, lng) {
   }
   return best && (cc || bd < 300) ? TZDATA.z[best.z] : null;
 }
+// Minutes east of UTC in a zone at a moment, or null for a zone this browser doesn't know.
+// Cached by the hour, which is when clocks change.
+var TZF = {}, TZO = {};
+function zoneOffset(zone, ms) {
+  var key = zone + '@' + Math.floor(ms / 36e5);
+  if (key in TZO) return TZO[key];
+  var f = TZF[zone];
+  if (f === undefined) try {
+    f = TZF[zone] = new Intl.DateTimeFormat('en-US', { timeZone: zone, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric' });
+  } catch (e) { f = TZF[zone] = null; }
+  if (!f) return (TZO[key] = null);
+  var p = {}, at = Math.floor(ms / 36e5) * 36e5;
+  f.formatToParts(new Date(at)).forEach(function (x) { p[x.type] = x.value; });
+  return (TZO[key] = Math.round((Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour % 24, +p.minute) - at) / 60000));
+}
 function tzLabel(off) {
   if (off == null || off === NO_OFF) return 'your time zone';
   var a = Math.abs(off);
@@ -2017,7 +2032,34 @@ function upgrade(R) {
     R.vll = new Float32Array(0); R.vtype = new Uint8Array(0); R.vname = []; R.vsrcs = new Uint8Array(0);
   }
   if (!R.files) R.files = [];
+  fillOffsets(R);
+  if (R.strava) fillOffsets(R.strava);
   return R;
+}
+// Takeout's Semantic Location History, Records.json and Strava write times in UTC with no
+// offset, which would show them in this browser's time zone. Give those trips and stays the
+// offset of the time zone where they started, and the date they started on there.
+function fillOffsets(R) {
+  var zc = {};
+  function offAt(lat, lng, ms) {
+    if (!isFinite(lat) || !isFinite(lng)) return NO_OFF;
+    var key = lat.toFixed(2) + ',' + lng.toFixed(2), z = zc[key];
+    if (z === undefined) z = zc[key] = zoneAt(lat, lng);
+    var o = z ? zoneOffset(z, ms) : null;
+    return o == null ? NO_OFF : o;
+  }
+  var i, o;
+  for (i = 0; R.off && i < R.off.length; i++) {
+    if (R.off[i] !== NO_OFF) continue;
+    o = offAt(R.from[2 * i], R.from[2 * i + 1], R.start[i]);
+    if (o === NO_OFF) o = offAt(R.to[2 * i], R.to[2 * i + 1], R.start[i]);
+    if (o !== NO_OFF) { R.off[i] = o; R.day[i] = Math.floor((R.start[i] + o * 60000) / 864e5); }
+  }
+  for (i = 0; R.voff && i < R.voff.length; i++) {
+    if (R.voff[i] !== NO_OFF) continue;
+    o = offAt(R.vll[2 * i], R.vll[2 * i + 1], R.vs[i]);
+    if (o !== NO_OFF) { R.voff[i] = o; R.vday[i] = Math.floor((R.vs[i] + o * 60000) / 864e5); }
+  }
 }
 
 function tagCountries() {
@@ -2593,7 +2635,7 @@ function withStrava(R) {
   function first(t) { var lo = 0, hi = n; while (lo < hi) { var mid = (lo + hi) >> 1; if (R.start[ord[mid]] < t) lo = mid + 1; else hi = mid; } return lo; }
   var drop = new Uint8Array(n), cnt = new Uint16Array(m), off = new Int16Array(m), matched = 0, replaced = 0;
   for (k = 0; k < m; k++) {
-    var s = S.start[k], e = S.end[k], o = NO_OFF;
+    var s = S.start[k], e = S.end[k], o = S.off ? S.off[k] : NO_OFF;
     for (j = first(s - maxDur); j < n && R.start[ord[j]] < e; j++) {
       i = ord[j];
       if (R.mode[i] === fly) continue;

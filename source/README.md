@@ -25,6 +25,10 @@ Load the on-device Timeline.json together with Takeout Records.json files (all a
 
 A file in the on-device Timeline.json format with `"simulated": true` at the top is read as simulated trips, for example trips rebuilt from booking emails. Where they clash with an exported Timeline, the simulated trips win: an exported trip that overlaps a simulated one for at least half of its time (or half of the simulated trip's time) is left out, and exported stays are cut back to the time around it. A few minutes' overlap at either end is not a clash, so the walk to the station stays. Everything else on those days still comes from the export.
 
+## Times
+
+Times and dates show the local time where you were. The on-device Timeline.json writes each time with its UTC offset, which is used as it is. Takeout's Semantic Location History, Records.json and Strava write times in UTC only, so those trips and stays take the time zone of the place they started (found from the country borders and time zone data built into the app, daylight saving included). Only when no time zone can be found, such as far out at sea, does a time fall back to this device's time zone.
+
 ## Layout
 
 - **Map:** full-screen map with the time slider at the top. When a single day is chosen, the top bar becomes a navigator: switch between Day, Week (Monday to Sunday), Month and Year, and the arrows (or the arrow keys) step to the previous or next one with trips. Filters are bottom-left (the gear there opens Settings). Views and layers are bottom-right: Mercator, Equal Earth or Globe; paths; a heatmap of where you travelled or stayed, based on GPS points, paths (how many trips went along each route, flights included) or time spent, with dot size and intensity; and countries visited.

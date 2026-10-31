@@ -328,6 +328,21 @@ function zoneAt(lat, lng) {
   }
   return best && (cc || bd < 300) ? TZDATA.z[best.z] : null;
 }
+// Minutes east of UTC in a zone at a moment, or null for a zone this browser doesn't know.
+// Cached by the hour, which is when clocks change.
+var TZF = {}, TZO = {};
+function zoneOffset(zone, ms) {
+  var key = zone + '@' + Math.floor(ms / 36e5);
+  if (key in TZO) return TZO[key];
+  var f = TZF[zone];
+  if (f === undefined) try {
+    f = TZF[zone] = new Intl.DateTimeFormat('en-US', { timeZone: zone, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric' });
+  } catch (e) { f = TZF[zone] = null; }
+  if (!f) return (TZO[key] = null);
+  var p = {}, at = Math.floor(ms / 36e5) * 36e5;
+  f.formatToParts(new Date(at)).forEach(function (x) { p[x.type] = x.value; });
+  return (TZO[key] = Math.round((Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour % 24, +p.minute) - at) / 60000));
+}
 function tzLabel(off) {
   if (off == null || off === NO_OFF) return 'your time zone';
   var a = Math.abs(off);

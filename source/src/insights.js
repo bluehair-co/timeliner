@@ -354,34 +354,51 @@ function evPos(ms, off) {
 }
 // Visits: the selected trips and stays in time order, cut wherever the country changes.
 // A visit with others before and after it that lasted under a day is a short stop, and a
-// layover when you both flew in and flew out.
+// layover when you both flew in and flew out: a true layover when you stayed by the
+// airport (nothing over 3 km from where you landed or took off), and a layover with a visit
+// when you went further, into town or to another airport.
 var STOP_MS = 864e5;
 function countryVisits() {
   var ev = [], fly = MODES.indexOf('FLYING'), j, i, v;
   for (j = 0; j < sel.length; j++) {
     i = sel[j];
     var air = D.mode[i] === fly;
-    ev.push({ t: D.start[i], cc: D.ccList[D.cs[i]], off: D.off[i], dep: air }, { t: D.end[i], cc: D.ccList[D.ce[i]], off: D.off[i], arr: air });
+    ev.push({ t: D.start[i], cc: D.ccList[D.cs[i]], off: D.off[i], dep: air, ll: [D.from[2 * i], D.from[2 * i + 1]] }, { t: D.end[i], cc: D.ccList[D.ce[i]], off: D.off[i], arr: air, ll: [D.to[2 * i], D.to[2 * i + 1]] });
   }
   for (j = 0; j < selV.length; j++) {
     v = selV[j];
-    ev.push({ t: D.vs[v], cc: D.ccList[D.vcc[v]], off: D.voff[v] }, { t: D.ve[v], cc: D.ccList[D.vcc[v]], off: D.voff[v] });
+    var vll = [D.vll[2 * v], D.vll[2 * v + 1]];
+    ev.push({ t: D.vs[v], cc: D.ccList[D.vcc[v]], off: D.voff[v], ll: vll }, { t: D.ve[v], cc: D.ccList[D.vcc[v]], off: D.voff[v], ll: vll });
   }
   ev = ev.filter(function (e) { return e.cc; }).sort(function (a, b) { return a.t - b.t; });
   var out = [], cur = null;
   ev.forEach(function (e) {
-    if (cur && cur.cc === e.cc) { cur.t1 = e.t; cur.p1 = evPos(e.t, e.off); cur.last = e; return; }
-    cur = { cc: e.cc, t0: e.t, t1: e.t, p0: evPos(e.t, e.off), p1: evPos(e.t, e.off), first: e, last: e };
+    if (cur && cur.cc === e.cc) { cur.t1 = e.t; cur.p1 = evPos(e.t, e.off); cur.last = e; cur.ev.push(e); return; }
+    cur = { cc: e.cc, t0: e.t, t1: e.t, p0: evPos(e.t, e.off), p1: evPos(e.t, e.off), first: e, last: e, ev: [e] };
     out.push(cur);
   });
   out.forEach(function (x, k) {
     x.ms = x.t1 - x.t0;
     x.short = k > 0 && k < out.length - 1 && x.ms < STOP_MS;
     x.layover = x.short && !!x.first.arr && !!x.last.dep;
+    if (x.layover) {
+      var a = x.first.ll, b = x.last.ll;
+      x.away = x.ev.reduce(function (m, e) {
+        var d = Math.min(haversine(e.ll, a), haversine(e.ll, b));
+        return isFinite(d) ? Math.max(m, d) : m;
+      }, 0);
+      x.visit = x.away > 3;
+    }
+    delete x.ev;
   });
   return out;
 }
-function stopText(c) { return c.kind === 'layover' ? (c.stops.length > 1 ? fmt(c.stops.length) + ' layovers' : 'Layover') : c.stops.length > 1 ? fmt(c.stops.length) + ' short stops' : 'Short stop'; }
+function stopText(c) {
+  var n = c.stops.length, v = c.stops.filter(function (x) { return x.visit; }).length;
+  if (c.kind === 'layover') return n > 1 ? fmt(n) + ' layovers' + (v ? ', ' + fmt(v) + ' with a visit' : '') : v ? 'Layover with a visit' : 'Layover';
+  return n > 1 ? fmt(n) + ' short stops' : 'Short stop';
+}
+function stopKind(x) { return x.layover ? (x.visit ? 'layover with a visit' : 'layover') : 'short stop'; }
 function renderCountries() {
   var by = {}, perDay = {};   // perDay[day][cc] = earliest time seen there that day
   function add(k, d, t) {
@@ -408,7 +425,7 @@ function renderCountries() {
   renderCcTimeline(list, perDay, visits);
   var many = list.length > 1;
   var passed = list.filter(function (c) { return c.kind; }).length;
-  $('ccNote').textContent = list.length ? fmt(list.length) + ' countr' + (list.length === 1 ? 'y' : 'ies') + (passed ? ' (' + fmt(passed) + ' only passed through)' : '') + ', by days you were there. Days between your records count too when you were in the same country before and after. Flights count only where they took off and landed. A stop of under a day between other countries is a short stop, or a layover when you flew in and out.' : '';
+  $('ccNote').textContent = list.length ? fmt(list.length) + ' countr' + (list.length === 1 ? 'y' : 'ies') + (passed ? ' (' + fmt(passed) + ' only passed through)' : '') + ', by days you were there. Days between your records count too when you were in the same country before and after. Flights count only where they took off and landed. A stop of under a day between other countries is a short stop, or a layover when you flew in and out (with a visit when you went over 3 km from the airport).' : '';
   var max = list.length ? list[0].n : 1;
   $('ccList').innerHTML = list.length ? list.slice(0, 30).map(function (c) {
     return '<div class="hit-row" style="cursor:default"><span class="flag" aria-hidden="true" style="font-size:22px;width:28px;text-align:center">' + (flag(c.cc) || '·') + '</span>' +
@@ -553,7 +570,7 @@ function cctlDraw() {
   $('cctlPins').innerHTML = CT.stops.map(function (x, k) {
     if (!keep[k]) return '';
     var c = CT.byCc[x.cc];
-    return '<button type="button" data-s="' + k + '" class="' + (x.layover ? 'air' : '') + (CT.on && CT.on.s === k ? ' on' : '') + '" style="left:' + (((x.p0 + x.p1) / 2 - CT.lo) * ppd).toFixed(1) + 'px;--c:' + c.color.replace(/^repeating.*?,(var\(--cc\d\)).*$/, '$1') + '" aria-label="' + esc(ccName(x.cc)) + (x.layover ? ' layover' : ' short stop') + '">' + (flag(x.cc) || '·') + '</button>';
+    return '<button type="button" data-s="' + k + '" class="' + (x.layover ? (x.visit ? 'air visit' : 'air') : '') + (CT.on && CT.on.s === k ? ' on' : '') + '" style="left:' + (((x.p0 + x.p1) / 2 - CT.lo) * ppd).toFixed(1) + 'px;--c:' + c.color.replace(/^repeating.*?,(var\(--cc\d\)).*$/, '$1') + '" aria-label="' + esc(ccName(x.cc)) + ' ' + stopKind(x) + '">' + (flag(x.cc) || '·') + '</button>';
   }).join('');
   setPressed('#cctlCard .card-head .seg button', function (b) { return b.id === 'cctlFit' && CT.fit; });
   $('cctlOut').disabled = CT.fit; $('cctlIn').disabled = ppd >= Math.max(CCTL_MAX, cctlFitPpd()) * 0.999;
@@ -616,7 +633,7 @@ $('cctlPins').addEventListener('click', function (ev) {
   CT.on = { cc: x.cc, r: null, s: k };
   $('cctlBars').querySelectorAll('b.on').forEach(function (y) { y.classList.remove('on'); });
   $('cctlPins').querySelectorAll('button').forEach(function (y) { y.classList.toggle('on', +y.dataset.s === k); });
-  $('cctlInfo').innerHTML = '<span class="cctl-sw" style="background:' + c.color + ';vertical-align:-1px"></span> <b>' + flag(x.cc) + ' ' + esc(ccName(x.cc)) + '</b> · ' + (x.layover ? 'layover' : 'short stop') + ' of ' + duration(x.ms) + ' · ' + clock(x.t0, x.first.off, true) + ' – ' + clock(x.t1, x.last.off, Math.floor(x.p1) !== Math.floor(x.p0));
+  $('cctlInfo').innerHTML = '<span class="cctl-sw" style="background:' + c.color + ';vertical-align:-1px"></span> <b>' + flag(x.cc) + ' ' + esc(ccName(x.cc)) + '</b> · ' + stopKind(x) + ' of ' + duration(x.ms) + (x.layover ? (x.visit ? ', up to ' + dist(x.away) + ' from the airport' : ', at the airport') : '') + ' · ' + clock(x.t0, x.first.off, true) + ' – ' + clock(x.t1, x.last.off, Math.floor(x.p1) !== Math.floor(x.p0));
 });
 $('cctlBars').addEventListener('click', function (ev) { var b = ev.target.closest('b[data-r]'); if (b && CT) cctlSay(+b.dataset.r, +b.dataset.p); });
 $('cctlLegend').addEventListener('click', function (ev) {

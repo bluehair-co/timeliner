@@ -97,6 +97,7 @@ svg.stroke { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: 
 /* Partly on: some of a type's sports are selected. */
 .chip[aria-pressed="mixed"] { background: color-mix(in srgb, var(--chip-on-bg) 40%, transparent); color: var(--chip-on-fg); border: 1px dashed var(--chip-on-fg); }
 .chip .n { font-family: var(--font-mono); font-size: 11px; opacity: .75; }
+.raw { font-family: var(--font-mono); font-size: 11px; line-height: 1.45; white-space: pre-wrap; word-break: break-all; max-height: 50vh; overflow: auto; padding: 10px; border-radius: 10px; background: var(--grid); user-select: text; }
 /* Strava sports, in a row under their transport mode. */
 .subchips { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; padding-left: 14px; border-left: 2px solid var(--line); margin: -2px 0 2px 10px; }
 .chip.sub { font-size: 12px; padding: 5px 10px; }
@@ -1417,6 +1418,7 @@ function isStravaName(name) { return /\.(zip|gpx|tcx|fit)(\.gz)?$/i.test(name); 
 // colour on the map) and is kept on the trip as its index in SPORTS (0 = none). They are
 // matched by their English names and common translations, in this order, so the more
 // specific names (E-Mountain Bike Ride, Trail Run…) are tried before the general ones.
+// Saved trips store the index, so new sports go at the end.
 var SPORTS = [null,
   ['emtb', 'E-mountain bike', 'CYCLING', /e-?mountain|e-?mtb/],
   ['mtb', 'Mountain bike', 'CYCLING', /mountain|mtb|vtt|ciclismo de monta|bicicleta de monta/],
@@ -1532,7 +1534,7 @@ function readFit(buf) {
   }
   // Mountain bike and trail run are cycling and running with a sub-sport.
   var name = sport === 2 && subSport === 8 ? 'Mountain Bike Ride' : sport === 1 && subSport === 3 ? 'Trail Run' : FIT_SPORT[sport] || '';
-  return { type: virtual ? 'virtual' : name, pts: pts, ts: ts };
+  return { type: virtual ? 'virtual' : name, sport: sport, subSport: subSport, pts: pts, ts: ts };
 }
 function readActivity(name, buf) {
   var n = name.replace(/\.gz$/i, '');
@@ -1560,7 +1562,7 @@ function simplify(pts, tol) {
   for (i = 0; i < n; i++) if (keep[i]) out.push(i);
   return out;
 }
-function addStrava(c, type, a) {
+function addStrava(c, type, a, meta) {
   var st = stravaSport(type), mode = st.mode;
   if (mode === null || a.pts.length < 2) return false;
   // Keep time order and drop repeated timestamps (paused recordings can repeat them).
@@ -1577,20 +1579,22 @@ function addStrava(c, type, a) {
   (c.sport || (c.sport = [])).push(st.sport);
   // A type Timeliner doesn't know is kept by name, to show on the trip.
   (c.stype || (c.stype = [])).push(st.sport ? '' : String(type == null || /^\d+$/.test(String(type).trim()) ? '' : type).trim());
+  // What the export said about the activity, for the trip's raw data.
+  (c.smeta || (c.smeta = [])).push(Object.assign({ typeUsed: type == null ? '' : String(type), fileType: a.type || '' }, a.sport != null ? { fitSport: a.sport, fitSubSport: a.subSport } : {}, meta || {}));
   return true;
 }
 function finishStrava(c) {
   if (!c.start.length) throw new Error(NO_STRAVA);
   var r = finish(c, SRC.strava);
   for (var i = 0; i < r.est.length; i++) r.est[i] |= STRAVA;
-  r.sport = Uint8Array.from(c.sport); r.stype = c.stype;
+  r.sport = Uint8Array.from(c.sport); r.stype = c.stype; r.smeta = c.smeta;
   r.strava = true;
   return r;
 }
 function parseStravaFile(file) {
   return file.arrayBuffer().then(function (buf) { return maybeGunzip(file.name, buf); }).then(function (buf) {
     var c = new Collector(), a = readActivity(file.name, buf);
-    addStrava(c, a.type, a);
+    addStrava(c, a.type, a, { file: file.name });
     return finishStrava(c);
   });
 }
@@ -1670,7 +1674,12 @@ function stravaTypes(txt) {
   if (fi < 0 && rows[1]) for (i = 0; i < rows[1].length; i++) if (/^activities\//.test(rows[1][i])) fi = i;
   if (ti < 0) ti = 3;
   if (fi < 0) return out;
-  for (i = 1; i < rows.length; i++) if (rows[i][fi]) out[rows[i][fi].trim()] = rows[i][ti];
+  // The first columns (ID, date, name, type, description, time, distance…) are kept for the trip's raw data.
+  for (i = 1; i < rows.length; i++) if (rows[i][fi]) {
+    var csv = {};
+    for (var k = 0; k < Math.min(head.length, 13); k++) if (rows[i][k]) csv[head[k]] = rows[i][k];
+    out[rows[i][fi].trim()] = { type: rows[i][ti], csv: csv };
+  }
   return out;
 }
 function parseStravaZip(file, onProgress) {
@@ -1684,8 +1693,8 @@ function parseStravaZip(file, onProgress) {
       if (i >= acts.length) { var r = finishStrava(c); r.skippedActs = skipped; return r; }
       var en = acts[i], key = en.name.replace(/^.*?(activities\/)/, '$1');
       return zipRead(file, en).then(function (b) { return maybeGunzip(en.name, b); }).then(function (b) {
-        var a = readActivity(en.name, b), t = types[key];
-        if (!addStrava(c, t != null && t !== '' ? t : a.type, a)) skipped++;
+        var a = readActivity(en.name, b), row = types[key], t = row && row.type;
+        if (!addStrava(c, t != null && t !== '' ? t : a.type, a, { file: key, csvType: t == null ? null : t, csv: row ? row.csv : null })) skipped++;
       }).catch(function () { skipped++; }).then(function () {
         if (i % 20 === 0) onProgress((i + 1) / acts.length);
         return step(null, i + 1);
@@ -2179,8 +2188,20 @@ function tagCountries() {
   for (var v = 0; v < nv; v++) { var c = code(D.vll[2 * v], D.vll[2 * v + 1]); D.vcc[v] = c; D.ccCount[c]++; }
 }
 
+// Strava types an earlier version didn't know are matched again, so a newly added sport
+// shows up without loading the export again.
+function rematchSports(S) {
+  if (!S || !S.stype) return;
+  for (var i = 0; i < S.stype.length; i++) {
+    if (S.sport[i] || !S.stype[i]) continue;
+    var st = stravaSport(S.stype[i]);
+    if (!st.sport) continue;
+    S.sport[i] = st.sport; S.mode[i] = MODE_IDX[st.mode]; S.est[i] &= ~GUESSED; S.stype[i] = '';
+  }
+}
 function setData(R) {
   RAW = upgrade(R);
+  rematchSports(RAW.strava);
   D = withStrava(RAW);
   $('app').classList.remove('no-data');
   var n = D.day.length, nv = D.vs.length, i, yc = {}, present = {}, sp = {}, plain = {};
@@ -2742,7 +2763,7 @@ function merge(base, parts) {
 function gather(all, out, src) {
   var n = out.length, npts = 0;
   var R = { start: new Float64Array(n), end: new Float64Array(n), day: new Int32Array(n), mode: new Uint8Array(n),
-    km: new Float32Array(n), est: new Uint8Array(n), off: new Int16Array(n), orig: new Float32Array(n), from: new Float32Array(2 * n), to: new Float32Array(2 * n), srcs: new Uint8Array(n), sport: new Uint8Array(n), stype: [] };
+    km: new Float32Array(n), est: new Uint8Array(n), off: new Int16Array(n), orig: new Float32Array(n), from: new Float32Array(2 * n), to: new Float32Array(2 * n), srcs: new Uint8Array(n), sport: new Uint8Array(n), stype: [], smeta: [] };
   out.forEach(function (x) { var p = all[x[0]]; npts += p.pathOff[x[1] + 1] - p.pathOff[x[1]]; });
   R.pathPts = new Float32Array(2 * npts); R.pathT = new Float32Array(npts); R.pathOff = new Uint32Array(n + 1);
   var w = 0;
@@ -2751,7 +2772,7 @@ function gather(all, out, src) {
     R.start[j] = p.start[i]; R.end[j] = p.end[i]; R.day[j] = p.day[i]; R.mode[j] = p.mode[i]; R.km[j] = p.km[i]; R.est[j] = p.est[i];
     R.off[j] = p.off ? p.off[i] : NO_OFF; R.orig[j] = p.orig ? p.orig[i] : 0;
     R.from[2 * j] = p.from[2 * i]; R.from[2 * j + 1] = p.from[2 * i + 1]; R.to[2 * j] = p.to[2 * i]; R.to[2 * j + 1] = p.to[2 * i + 1];
-    R.srcs[j] = src(p, i); R.sport[j] = p.sport ? p.sport[i] : 0; R.stype.push(p.stype && p.stype[i] || '');
+    R.srcs[j] = src(p, i); R.sport[j] = p.sport ? p.sport[i] : 0; R.stype.push(p.stype && p.stype[i] || ''); R.smeta.push(p.smeta && p.smeta[i] || null);
     for (var q = p.pathOff[i]; q < p.pathOff[i + 1]; q++, w++) { R.pathPts[2 * w] = p.pathPts[2 * q]; R.pathPts[2 * w + 1] = p.pathPts[2 * q + 1]; R.pathT[w] = p.pathT[q]; }
     R.pathOff[j + 1] = w;
   });
@@ -3215,11 +3236,49 @@ function openTrip(i, fromList) {
     (r.notes.length ? '<p class="fine" style="margin-top:10px">' + r.notes.join(' ') + '</p>' : '') +
     '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:14px">' +
     (F.dm !== 'one' || F.unit !== 'day' || tab !== 'map' ? '<button type="button" class="btn" data-act="day" data-i="' + i + '">' + icon('calendar') + 'Show this day on the map</button>' : '') +
-    (tab !== 'timeline' ? '<button type="button" class="btn" data-act="tl" data-i="' + i + '">' + icon('history') + 'Open in Timeline</button>' : '') + '</div>';
+    (tab !== 'timeline' ? '<button type="button" class="btn" data-act="tl" data-i="' + i + '">' + icon('history') + 'Open in Timeline</button>' : '') +
+    '<button type="button" class="btn" data-act="raw" data-i="' + i + '" aria-expanded="false">{ } Raw data</button></div>' +
+    '<div id="rawWrap" hidden><div style="display:flex;gap:8px;margin:12px 0 8px"><button type="button" class="btn" data-act="copy" data-i="' + i + '">Copy</button>' +
+    '<button type="button" class="btn" data-act="save" data-i="' + i + '">Download</button></div><pre class="raw" id="rawPre"></pre></div>';
   $('tripSheetTitle').textContent = 'Trip';
   openSheet('tripSheet');
   $('tripBody').scrollTop = 0;
   if (tab === 'map') highlight(i);
+}
+// Everything Timeliner keeps about one trip, as JSON, to look into a trip without sharing the whole import.
+// Timeliner keeps what it read from the files, not the files themselves, so this is that.
+var EST_FLAGS = [[1, 'distance along the GPS trail'], [2, 'distance as a straight line'], [4, 'type guessed from speed'], [8, 'distance corrected'],
+  [16, 'from Strava'], [32, 'line from Records.json'], [64, 'made from GPS points without a trip']];
+function rawTrip(i) {
+  function iso(ms) { return new Date(ms).toISOString(); }
+  function ll(a, k) { return isFinite(a[2 * k]) ? [+a[2 * k].toFixed(6), +a[2 * k + 1].toFixed(6)] : null; }
+  var e = D.est[i], s = D.srcs ? D.srcs[i] : null, o = {
+    source: s === SRC.strava ? 'Strava' : s === SRC.sim ? 'Simulated' : KIND_LABEL[s] || 'Unknown',
+    type: tripLabel(i).replace(/&amp;/g, '&'), mode: modeOf(i),
+    sport: D.sport && D.sport[i] ? SPORTS[D.sport[i]][0] : null, stravaType: D.stype && D.stype[i] || null,
+    start: iso(D.start[i]), end: iso(D.end[i]), utcOffsetMin: D.off[i] === NO_OFF ? null : D.off[i], localDay: isoDay(D.day[i]),
+    km: +D.km[i].toFixed(3), fileKm: D.orig[i] > 0 ? +D.orig[i].toFixed(3) : null,
+    flags: EST_FLAGS.filter(function (f) { return e & f[0]; }).map(function (f) { return f[1]; }),
+    from: ll(D.from, i), to: ll(D.to, i)
+  };
+  if (e & 16) {
+    // The Timeline trips at the same time, including the ones this activity replaced.
+    o.strava = D.smeta && D.smeta[i] || 'Not kept: load the Strava export again to see what it says about this activity.';
+    o.timelineSameTime = [];
+    for (var j = 0; j < RAW.start.length; j++) {
+      if (RAW.end[j] <= D.start[i] || RAW.start[j] >= D.end[i]) continue;
+      o.timelineSameTime.push({ start: iso(RAW.start[j]), end: iso(RAW.end[j]), mode: MODES[RAW.mode[j]], km: +RAW.km[j].toFixed(3),
+        source: KIND_LABEL[RAW.srcs ? RAW.srcs[j] : RAW.src] || 'Unknown', from: ll(RAW.from, j), to: ll(RAW.to, j), points: RAW.pathOff[j + 1] - RAW.pathOff[j] });
+    }
+  }
+  // Each point: latitude, longitude, seconds after the start.
+  o.points = [];
+  for (var q = D.pathOff[i]; q < D.pathOff[i + 1]; q++) o.points.push([+D.pathPts[2 * q].toFixed(6), +D.pathPts[2 * q + 1].toFixed(6), Math.round(D.pathT[q])]);
+  return o;
+}
+function rawText(i) {
+  // One point per line keeps it readable.
+  return JSON.stringify(rawTrip(i), null, 1).replace(/\[\n\s+(-?[\d.]+),\n\s+(-?[\d.]+)(?:,\n\s+(-?[\d.]+))?\n\s+\]/g, function (_, a, b, c) { return '[' + a + ', ' + b + (c != null ? ', ' + c : '') + ']'; });
 }
 function openList(list) {
   listBack = list;
@@ -3241,7 +3300,23 @@ $('tripBody').addEventListener('click', function (ev) {
   var i = +b.dataset.i;
   if (b.dataset.act === 'day') { closeSheets(); setTab('map'); showDay(D.day[i]); }
   else if (b.dataset.act === 'tl') { closeSheets(); setTab('timeline'); tlSelect(i, true); }
-  else openTrip(i, true);
+  else if (b.dataset.act === 'raw') {
+    var open = $('rawWrap').hidden;
+    if (open) $('rawPre').textContent = rawText(i);
+    $('rawWrap').hidden = !open; b.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (open) $('rawWrap').scrollIntoView({ block: 'nearest' });
+  } else if (b.dataset.act === 'copy') {
+    var txt = rawText(i);
+    (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(function () { toast('Trip data copied'); }, function () {
+      var r = document.createRange(); r.selectNodeContents($('rawPre')); var s = getSelection(); s.removeAllRanges(); s.addRange(r); toast('Selected: copy it from here');
+    });
+  } else if (b.dataset.act === 'save') {
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([rawText(i)], { type: 'application/json' }));
+    a.download = 'trip-' + new Date(D.start[i]).toISOString().slice(0, 16).replace(/[:T]/g, '-') + '.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+  } else openTrip(i, true);
 });
 $('tripBack').addEventListener('click', function () { if (listBack) openList(listBack); });
 

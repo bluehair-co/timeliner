@@ -659,6 +659,7 @@ function isStravaName(name) { return /\.(zip|gpx|tcx|fit)(\.gz)?$/i.test(name); 
 // colour on the map) and is kept on the trip as its index in SPORTS (0 = none). They are
 // matched by their English names and common translations, in this order, so the more
 // specific names (E-Mountain Bike Ride, Trail Run…) are tried before the general ones.
+// Saved trips store the index, so new sports go at the end.
 var SPORTS = [null,
   ['emtb', 'E-mountain bike', 'CYCLING', /e-?mountain|e-?mtb/],
   ['mtb', 'Mountain bike', 'CYCLING', /mountain|mtb|vtt|ciclismo de monta|bicicleta de monta/],
@@ -774,7 +775,7 @@ function readFit(buf) {
   }
   // Mountain bike and trail run are cycling and running with a sub-sport.
   var name = sport === 2 && subSport === 8 ? 'Mountain Bike Ride' : sport === 1 && subSport === 3 ? 'Trail Run' : FIT_SPORT[sport] || '';
-  return { type: virtual ? 'virtual' : name, pts: pts, ts: ts };
+  return { type: virtual ? 'virtual' : name, sport: sport, subSport: subSport, pts: pts, ts: ts };
 }
 function readActivity(name, buf) {
   var n = name.replace(/\.gz$/i, '');
@@ -802,7 +803,7 @@ function simplify(pts, tol) {
   for (i = 0; i < n; i++) if (keep[i]) out.push(i);
   return out;
 }
-function addStrava(c, type, a) {
+function addStrava(c, type, a, meta) {
   var st = stravaSport(type), mode = st.mode;
   if (mode === null || a.pts.length < 2) return false;
   // Keep time order and drop repeated timestamps (paused recordings can repeat them).
@@ -819,20 +820,22 @@ function addStrava(c, type, a) {
   (c.sport || (c.sport = [])).push(st.sport);
   // A type Timeliner doesn't know is kept by name, to show on the trip.
   (c.stype || (c.stype = [])).push(st.sport ? '' : String(type == null || /^\d+$/.test(String(type).trim()) ? '' : type).trim());
+  // What the export said about the activity, for the trip's raw data.
+  (c.smeta || (c.smeta = [])).push(Object.assign({ typeUsed: type == null ? '' : String(type), fileType: a.type || '' }, a.sport != null ? { fitSport: a.sport, fitSubSport: a.subSport } : {}, meta || {}));
   return true;
 }
 function finishStrava(c) {
   if (!c.start.length) throw new Error(NO_STRAVA);
   var r = finish(c, SRC.strava);
   for (var i = 0; i < r.est.length; i++) r.est[i] |= STRAVA;
-  r.sport = Uint8Array.from(c.sport); r.stype = c.stype;
+  r.sport = Uint8Array.from(c.sport); r.stype = c.stype; r.smeta = c.smeta;
   r.strava = true;
   return r;
 }
 function parseStravaFile(file) {
   return file.arrayBuffer().then(function (buf) { return maybeGunzip(file.name, buf); }).then(function (buf) {
     var c = new Collector(), a = readActivity(file.name, buf);
-    addStrava(c, a.type, a);
+    addStrava(c, a.type, a, { file: file.name });
     return finishStrava(c);
   });
 }
@@ -912,7 +915,12 @@ function stravaTypes(txt) {
   if (fi < 0 && rows[1]) for (i = 0; i < rows[1].length; i++) if (/^activities\//.test(rows[1][i])) fi = i;
   if (ti < 0) ti = 3;
   if (fi < 0) return out;
-  for (i = 1; i < rows.length; i++) if (rows[i][fi]) out[rows[i][fi].trim()] = rows[i][ti];
+  // The first columns (ID, date, name, type, description, time, distance…) are kept for the trip's raw data.
+  for (i = 1; i < rows.length; i++) if (rows[i][fi]) {
+    var csv = {};
+    for (var k = 0; k < Math.min(head.length, 13); k++) if (rows[i][k]) csv[head[k]] = rows[i][k];
+    out[rows[i][fi].trim()] = { type: rows[i][ti], csv: csv };
+  }
   return out;
 }
 function parseStravaZip(file, onProgress) {
@@ -926,8 +934,8 @@ function parseStravaZip(file, onProgress) {
       if (i >= acts.length) { var r = finishStrava(c); r.skippedActs = skipped; return r; }
       var en = acts[i], key = en.name.replace(/^.*?(activities\/)/, '$1');
       return zipRead(file, en).then(function (b) { return maybeGunzip(en.name, b); }).then(function (b) {
-        var a = readActivity(en.name, b), t = types[key];
-        if (!addStrava(c, t != null && t !== '' ? t : a.type, a)) skipped++;
+        var a = readActivity(en.name, b), row = types[key], t = row && row.type;
+        if (!addStrava(c, t != null && t !== '' ? t : a.type, a, { file: key, csvType: t == null ? null : t, csv: row ? row.csv : null })) skipped++;
       }).catch(function () { skipped++; }).then(function () {
         if (i % 20 === 0) onProgress((i + 1) / acts.length);
         return step(null, i + 1);

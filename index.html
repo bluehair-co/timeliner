@@ -874,7 +874,8 @@ Collector.prototype.add = function (mode, st, et, dist, est, a, b, pts, ptsT) {
   if (!st || !(dist > 0) || dist > 25000) return;
   var given = dist;
   var cap = MAX_KMH[mode], hours = et ? (et.ms - st.ms) / 36e5 : 0;
-  if (cap && hours > 0 && dist / hours > cap) {
+  // A distance measured along a full GPS recording (Strava) is kept as it is.
+  if (cap && hours > 0 && dist / hours > cap && !this.gps) {
     // Too fast for this mode: trust the GPS trail if there is one, else the straight line, never more than Timeline said.
     var ln = km(a, b), trail = pts && pts.length ? pathKm([a].concat(pts, [b]).filter(Boolean)) : 0;
     var alt = trail > ln && trail / hours <= cap ? trail : ln, altEst = alt === trail && trail > ln ? 1 : 2;
@@ -890,7 +891,7 @@ Collector.prototype.add = function (mode, st, et, dist, est, a, b, pts, ptsT) {
     // Untyped trips often carry a broken distance (e.g. 148 km for a 16 km hop).
     // When it's far longer than the straight line between the ends, use the straight line.
     var line = km(a, b);
-    if (line > 0 && dist > 3 * line + 5) { dist = line; est = 2; }
+    if (line > 0 && dist > 3 * line + 5 && !this.gps) { dist = line; est = 2; }
     var g = guessMode(dist, (et.ms - st.ms) / 36e5);
     // Too fast for the ground but under 250 km apart is a GPS jump, not a flight: leave it out.
     if (g === 'FLYING' && !(line >= 250)) g = null;
@@ -1569,17 +1570,20 @@ function addStrava(c, type, a) {
   // Distance on a lightly smoothed track, so GPS jitter while standing still doesn't add up.
   var dist = pathKm(simplify(pts, 2).map(function (i) { return pts[i]; })), keep = simplify(pts, 6);
   var inner = keep.slice(1, -1), n = pts.length - 1, before = c.start.length;
+  c.gps = true;
   c.add(mode || 'UNKNOWN', { ms: ts[0], off: null }, { ms: ts[n], off: null }, dist, 1, pts[0], pts[n],
     inner.map(function (i) { return pts[i]; }), inner.map(function (i) { return ts[i]; }));
   if (c.start.length === before) return false;
   (c.sport || (c.sport = [])).push(st.sport);
+  // A type Timeliner doesn't know is kept by name, to show on the trip.
+  (c.stype || (c.stype = [])).push(st.sport ? '' : String(type == null || /^\d+$/.test(String(type).trim()) ? '' : type).trim());
   return true;
 }
 function finishStrava(c) {
   if (!c.start.length) throw new Error(NO_STRAVA);
   var r = finish(c, SRC.strava);
   for (var i = 0; i < r.est.length; i++) r.est[i] |= STRAVA;
-  r.sport = Uint8Array.from(c.sport);
+  r.sport = Uint8Array.from(c.sport); r.stype = c.stype;
   r.strava = true;
   return r;
 }
@@ -1807,7 +1811,7 @@ function groupOf(m) { return GROUP_OF[m] || GROUPS[GROUPS.length - 1]; }
 function modeColor(m) { return groupOf(m).color; }
 function modeOf(i) { return MODES[D.mode[i]]; }
 // A trip's name: its Strava sport (Kayaking, Mountain bike…) when it has one, else its mode.
-function tripLabel(i) { var s = D.sport && D.sport[i]; if (s && SPORTS[s]) return SPORTS[s][1]; var m = modeOf(i); return LABEL[m] || m; }
+function tripLabel(i) { var s = D.sport && D.sport[i]; if (s && SPORTS[s]) return SPORTS[s][1]; if (D.stype && D.stype[i]) return esc(D.stype[i]); var m = modeOf(i); return LABEL[m] || m; }
 // strava adds Strava's mark in the top right corner.
 var STRAVA_MARK = '<span class="strava-mark" title="From Strava"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.6 1.5 11 10H8.4L6.6 6.6 4.8 10H2.2zM10.3 10.6l1.2 2.4 1.2-2.4h1.9l-3.1 6-3.1-6z" fill="#fff"/></svg></span>';
 // Trips from a simulated file (see merge) get a "Simulated" tag wherever they are shown.
@@ -2738,7 +2742,7 @@ function merge(base, parts) {
 function gather(all, out, src) {
   var n = out.length, npts = 0;
   var R = { start: new Float64Array(n), end: new Float64Array(n), day: new Int32Array(n), mode: new Uint8Array(n),
-    km: new Float32Array(n), est: new Uint8Array(n), off: new Int16Array(n), orig: new Float32Array(n), from: new Float32Array(2 * n), to: new Float32Array(2 * n), srcs: new Uint8Array(n), sport: new Uint8Array(n) };
+    km: new Float32Array(n), est: new Uint8Array(n), off: new Int16Array(n), orig: new Float32Array(n), from: new Float32Array(2 * n), to: new Float32Array(2 * n), srcs: new Uint8Array(n), sport: new Uint8Array(n), stype: [] };
   out.forEach(function (x) { var p = all[x[0]]; npts += p.pathOff[x[1] + 1] - p.pathOff[x[1]]; });
   R.pathPts = new Float32Array(2 * npts); R.pathT = new Float32Array(npts); R.pathOff = new Uint32Array(n + 1);
   var w = 0;
@@ -2747,7 +2751,7 @@ function gather(all, out, src) {
     R.start[j] = p.start[i]; R.end[j] = p.end[i]; R.day[j] = p.day[i]; R.mode[j] = p.mode[i]; R.km[j] = p.km[i]; R.est[j] = p.est[i];
     R.off[j] = p.off ? p.off[i] : NO_OFF; R.orig[j] = p.orig ? p.orig[i] : 0;
     R.from[2 * j] = p.from[2 * i]; R.from[2 * j + 1] = p.from[2 * i + 1]; R.to[2 * j] = p.to[2 * i]; R.to[2 * j + 1] = p.to[2 * i + 1];
-    R.srcs[j] = src(p, i); R.sport[j] = p.sport ? p.sport[i] : 0;
+    R.srcs[j] = src(p, i); R.sport[j] = p.sport ? p.sport[i] : 0; R.stype.push(p.stype && p.stype[i] || '');
     for (var q = p.pathOff[i]; q < p.pathOff[i + 1]; q++, w++) { R.pathPts[2 * w] = p.pathPts[2 * q]; R.pathPts[2 * w + 1] = p.pathPts[2 * q + 1]; R.pathT[w] = p.pathT[q]; }
     R.pathOff[j + 1] = w;
   });
@@ -3191,7 +3195,8 @@ function tripRows(i) {
   if (e & 16) notes.push(D.repl[i] ? 'Recorded on Strava. It replaces ' + (D.repl[i] === 1 ? 'the less precise trip' : D.repl[i] + ' less precise trips') + ' Timeline recorded at the same time.' : 'Recorded on Strava. Timeline has no trip at this time.');
   if (isSim(i)) notes.push('Simulated from a file you loaded, not recorded by Timeline. It replaces any exported trip at the same time.');
   if (e & PATH_TRIP) notes.push('Timeline kept GPS points here but no trip, so Timeliner made this trip from them.');
-  if (e & 4) notes.push('Timeline gave this trip no transport type, or one that didn\'t fit its speed, so the type is guessed from the average speed.');
+  if (e & 4 && e & 16) notes.push((D.stype && D.stype[i] ? 'Strava calls this activity “' + esc(D.stype[i]) + '”, which Timeliner doesn\'t match to a transport type yet' : 'Strava gives this activity no type') + ', so it is counted as ' + (LABEL[m] || m).toLowerCase() + ' from its average speed.');
+  else if (e & 4) notes.push('Timeline gave this trip no transport type, or one that didn\'t fit its speed, so the type is guessed from the average speed.');
   if (e & RECORDS_GPS) notes.push('The line follows the GPS points from Records.json' + ((e & 3) === 1 ? ', and the distance is measured along them' + (D.orig[i] > 0 && Math.abs(D.orig[i] - k) > 0.05 * k ? ' (Timeline said ' + dist(D.orig[i]) + ').' : '.') : '.'));
   else if (D.orig[i] > 0) notes.push('Timeline recorded ' + dist(D.orig[i]) + ' for this trip, which is impossible at its speed, so Timeliner uses the ' + ((e & 3) === 1 ? 'GPS trail' : 'straight line') + ' instead.');
   if (m === 'FLYING') notes.push('The cities are the nearest airports to where the flight started and ended.');

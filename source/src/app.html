@@ -113,6 +113,12 @@
           <div class="card-head"><h2>Records</h2><span class="fine">Tap a record to see the trip.</span></div>
           <div class="records" id="records"></div>
         </section>
+        <section class="card wide" id="cctlCard">
+          <div class="card-head"><h2>Countries over time</h2><div class="seg" role="group" aria-label="Zoom"><button type="button" id="cctlOut" aria-label="Zoom out">−</button><button type="button" id="cctlFit">Fit</button><button type="button" id="cctlIn" aria-label="Zoom in">+</button></div><span class="fine">Which country you were in each day. Scroll sideways, and pinch, Ctrl+scroll or use the buttons to zoom. Tap a block for its dates.</span></div>
+          <div class="cctl-scroll" id="cctlScroll"><div class="cctl-track" id="cctlTrack"><div class="cctl-bars" id="cctlBars"></div><div class="cctl-axis" id="cctlAxis"></div></div></div>
+          <p class="cctl-info" id="cctlInfo" aria-live="polite"></p>
+          <div class="cctl-legend" id="cctlLegend"></div>
+        </section>
         <section class="card">
           <div class="card-head"><h2>Countries</h2><span class="fine" id="ccNote"></span></div>
           <div class="list-rows" id="ccList"></div>

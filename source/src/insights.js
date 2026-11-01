@@ -347,25 +347,177 @@ function gapDays(last, add) {
   });
 }
 function renderCountries() {
-  var by = {};
-  function add(k, d) {
+  var by = {}, perDay = {};   // perDay[day][cc] = earliest time seen there that day
+  function add(k, d, t) {
     var cc = D.ccList[k];
     if (!cc) return;
     var c = by[cc] || (by[cc] = { cc: cc, days: {}, first: d, last: d });
     c.days[d] = 1; if (d < c.first) c.first = d; if (d > c.last) c.last = d;
+    var pd = perDay[d] || (perDay[d] = {});
+    if (t == null) t = d * 864e5;
+    if (!(cc in pd) || t < pd[cc]) pd[cc] = t;
   }
-  for (var j = 0; j < sel.length; j++) { var i = sel[j]; add(D.cs[i], D.day[i]); add(D.ce[i], D.day[i]); }
-  for (var v = 0; v < selV.length; v++) add(D.vcc[selV[v]], D.vday[selV[v]]);
-  gapDays(Infinity, add);
+  for (var j = 0; j < sel.length; j++) { var i = sel[j]; add(D.cs[i], D.day[i], D.start[i]); add(D.ce[i], D.day[i], D.end[i]); }
+  for (var v = 0; v < selV.length; v++) add(D.vcc[selV[v]], D.vday[selV[v]], D.vs[selV[v]]);
+  gapDays(Infinity, function (k, d) { add(k, d); });
   var list = Object.keys(by).map(function (k) { var c = by[k]; c.n = Object.keys(c.days).length; return c; }).sort(function (a, b) { return b.n - a.n; });
+  list.forEach(function (c, r) { c.color = ccColor(r); });
+  renderCcTimeline(list, perDay);
+  var many = list.length > 1;
   $('ccNote').textContent = list.length ? fmt(list.length) + ' countr' + (list.length === 1 ? 'y' : 'ies') + ', by days you were there. Days between your records count too when you were in the same country before and after. Flights count only where they took off and landed.' : '';
   var max = list.length ? list[0].n : 1;
   $('ccList').innerHTML = list.length ? list.slice(0, 30).map(function (c) {
     return '<div class="hit-row" style="cursor:default"><span class="flag" aria-hidden="true" style="font-size:22px;width:28px;text-align:center">' + (flag(c.cc) || '·') + '</span>' +
-      '<span class="t"><b>' + esc(ccName(c.cc)) + '</b><small>' + (c.first === c.last ? niceDate(c.first) : niceDate(c.first) + ' – ' + niceDate(c.last)) + '</small><span class="meter" style="display:block;margin-top:6px"><i style="width:' + (c.n / max * 100).toFixed(1) + '%"></i></span></span>' +
+      '<span class="t"><b>' + esc(ccName(c.cc)) + '</b><small>' + (c.first === c.last ? niceDate(c.first) : niceDate(c.first) + ' – ' + niceDate(c.last)) + '</small><span class="meter" style="display:block;margin-top:6px"><i style="width:' + (c.n / max * 100).toFixed(1) + '%' + (many ? ';background:' + c.color : '') + '"></i></span></span>' +
       '<span class="r num">' + fmt(c.n) + '<small>day' + (c.n > 1 ? 's' : '') + '</small></span></div>';
   }).join('') + (list.length > 30 ? '<p class="fine" style="margin-top:8px">And ' + fmt(list.length - 30) + ' more.</p>' : '') : '<p class="empty">No countries in this selection.</p>';
 }
+// ---------- countries over time ----------
+// A colour per country, by days there in this selection: the eight chart hues, then the
+// same hues striped one way and the other, so neighbours stay apart past eight countries.
+function ccColor(r) {
+  var c = 'var(--cc' + (r % 8 + 1) + ')', t = Math.floor(r / 8);
+  if (!t) return c;
+  return 'repeating-linear-gradient(' + (t % 2 ? 45 : 135) + 'deg,' + c + ' 0 5px,color-mix(in srgb,' + c + ' 55%,#000) 5px 8px)';
+}
+var CT = null;   // the strip's state: period, day runs, zoom
+function renderCcTimeline(list, perDay) {
+  var card = $('cctlCard');
+  if (list.length < 2) { card.hidden = true; CT = null; return; }
+  card.hidden = false;
+  var days = Object.keys(perDay).map(Number), lo, hi;
+  if (F.dm === 'one') { lo = periodStart(F.one, F.unit); hi = periodEnd(F.one, F.unit); }
+  else if (F.dm === 'range' || F.dm === 'week') { lo = F.from; hi = F.to; }
+  else { lo = Math.min.apply(null, days); hi = Math.max.apply(null, days); }
+  var byCc = {}, runs = [], d;
+  list.forEach(function (c) { byCc[c.cc] = c; });
+  // Runs of days in the same single country; a day in more than one country is a run of
+  // its own, split in the order you got there.
+  for (d = lo; d <= hi; d++) {
+    var pd = perDay[d];
+    if (!pd) continue;
+    var parts = Object.keys(pd).sort(function (a, b) { return pd[a] - pd[b]; }), last = runs[runs.length - 1];
+    if (parts.length === 1 && last && last.parts.length === 1 && last.parts[0] === parts[0] && last.d1 === d - 1) last.d1 = d;
+    else runs.push({ d0: d, d1: d, parts: parts });
+  }
+  CT = { lo: lo, hi: hi, span: hi - lo + 1, runs: runs, list: list, byCc: byCc, fit: true, ppd: 1, on: null };
+  $('cctlInfo').textContent = '';
+  $('cctlLegend').innerHTML = list.map(function (c) {
+    return '<button type="button" data-cc="' + c.cc + '"><span class="cctl-sw" style="background:' + c.color + '"></span>' + (flag(c.cc) ? flag(c.cc) + ' ' : '') + esc(ccName(c.cc)) + ' <small>' + fmt(c.n) + ' day' + (c.n > 1 ? 's' : '') + '</small></button>';
+  }).join('');
+  cctlFit();
+}
+function cctlFitPpd() { return Math.max(1e-3, $('cctlScroll').clientWidth / CT.span); }
+function cctlFit() { if (!CT) return; CT.fit = true; CT.ppd = cctlFitPpd(); cctlDraw(); $('cctlScroll').scrollLeft = 0; }
+var CCTL_MAX = 90;   // px per day at the closest zoom
+function cctlZoom(ppd, ax) {
+  if (!CT) return;
+  var sc = $('cctlScroll'), min = cctlFitPpd();
+  if (ax == null) ax = sc.clientWidth / 2;
+  var at = (sc.scrollLeft + ax) / CT.ppd;
+  ppd = Math.max(min, Math.min(Math.max(CCTL_MAX, min), ppd));
+  if (Math.abs(ppd - CT.ppd) < 1e-6) return;
+  CT.ppd = ppd; CT.fit = ppd <= min * 1.0001;
+  cctlDraw();
+  sc.scrollLeft = at * ppd - ax;
+  cctlAxis();
+}
+function cctlDraw() {
+  var ppd = CT.ppd, W = CT.span * ppd, h = [];
+  $('cctlTrack').style.width = W + 'px';
+  CT.runs.forEach(function (r, k) {
+    var x = (r.d0 - CT.lo) * ppd, w = (r.d1 - r.d0 + 1) * ppd, pw = w / r.parts.length;
+    r.parts.forEach(function (cc, p) {
+      var c = CT.byCc[cc], n = r.d1 - r.d0 + 1, lab = '';
+      if (pw >= 150 && r.parts.length === 1) lab = '<span class="f">' + flag(cc) + '</span>' + esc(ccName(cc)) + ' · ' + fmt(n) + ' day' + (n > 1 ? 's' : '');
+      else if (pw >= 44 && r.parts.length === 1) lab = '<span class="f">' + flag(cc) + '</span>' + fmt(n) + 'd';
+      else if (pw >= 24) lab = '<span class="f">' + flag(cc) + '</span>';
+      h.push('<b data-r="' + k + '" data-p="' + p + '" class="' + (pw >= 6 ? 'g ' : '') + (CT.on && (CT.on.cc === cc && (CT.on.r == null || CT.on.r === k && CT.on.p === p)) ? 'on' : '') + '" style="left:' + (x + p * pw).toFixed(2) + 'px;width:' + Math.max(pw, 1).toFixed(2) + 'px;background:' + c.color + '">' + lab + '</b>');
+    });
+  });
+  $('cctlBars').innerHTML = h.join('');
+  setPressed('#cctlCard .card-head .seg button', function (b) { return b.id === 'cctlFit' && CT.fit; });
+  $('cctlOut').disabled = CT.fit; $('cctlIn').disabled = ppd >= Math.max(CCTL_MAX, cctlFitPpd()) * 0.999;
+  cctlAxis();
+}
+// Ticks and labels for what's on screen (and a screen either side), from days up to years.
+function cctlAxis() {
+  if (!CT) return;
+  var sc = $('cctlScroll'), ppd = CT.ppd, vw = sc.clientWidth || 300;
+  var a = Math.max(CT.lo, CT.lo + Math.floor((sc.scrollLeft - vw) / ppd)), b = Math.min(CT.hi + 1, CT.lo + Math.ceil((sc.scrollLeft + 2 * vw) / ppd));
+  var ticks = [], d;
+  for (d = a; d <= b; d++) {
+    var x = dayToDate(d), dd = x.getUTCDate(), m = x.getUTCMonth(), y = x.getUTCFullYear(), t = null;
+    if (ppd >= 18) t = dd === 1 ? [true, MONTHS[m] + ' ' + y] : [false, String(dd)];
+    else if (ppd >= 3.5) t = dd === 1 ? [true, m ? MONTHS[m] : MONTHS[m] + ' ' + y] : x.getUTCDay() === 1 ? [false, String(dd)] : null;
+    else if (ppd >= 0.7) t = dd === 1 ? (m ? [false, MONTHS[m]] : [true, String(y)]) : null;
+    else t = dd === 1 && !m ? [true, String(y)] : dd === 1 && ppd * 30 >= 6 ? [false, ''] : null;
+    if (t) ticks.push({ x: (d - CT.lo) * ppd, major: t[0], text: t[1] });
+  }
+  // Labels left to right; a month or year label wins over a day label it would overlap.
+  // The left edge always says which month (or year) you're looking at.
+  var x0 = sc.scrollLeft, e = dayToDate(Math.min(CT.hi, CT.lo + Math.floor(x0 / ppd))), shown = [];
+  var edge = { x: x0, major: true, text: ppd >= 0.7 ? MONTHS[e.getUTCMonth()] + ' ' + e.getUTCFullYear() : String(e.getUTCFullYear()) };
+  edge.w = edge.text.length * 7 + 10;
+  ticks = ticks.filter(function (t) { return !(t.text && t.major && t.x >= x0 - 1 && t.x < x0 + edge.w); });
+  shown.push(edge);
+  ticks.forEach(function (t) {
+    if (!t.text || (t.x >= x0 - 30 && t.x < x0)) return;
+    t.w = t.text.length * 7 + 10;
+    var p = shown[shown.length - 1];
+    if (p && p.x + p.w > t.x) {
+      if (t.major && !p.major) { shown.pop(); p = shown[shown.length - 1]; if (p && p.x + p.w > t.x) return; }
+      else return;
+    }
+    shown.push(t);
+  });
+  $('cctlAxis').innerHTML = ticks.map(function (t) { return '<i class="' + (t.major ? 'major' : '') + '" style="left:' + t.x.toFixed(1) + 'px"></i>'; }).join('') +
+    shown.map(function (t) { return '<span class="' + (t.major ? 'major' : '') + '" style="left:' + t.x.toFixed(1) + 'px">' + esc(t.text) + '</span>'; }).join('');
+}
+function cctlRange(a, b) { return a === b ? niceDate(a) : niceDate(a) + ' – ' + niceDate(b); }
+function cctlSay(r, p) {
+  var run = CT.runs[r], cc = run.parts[p], c = CT.byCc[cc], n = run.d1 - run.d0 + 1, others = run.parts.filter(function (x) { return x !== cc; });
+  CT.on = { cc: cc, r: r, p: p };
+  $('cctlInfo').innerHTML = '<span class="cctl-sw" style="background:' + c.color + ';vertical-align:-1px"></span> <b>' + flag(cc) + ' ' + esc(ccName(cc)) + '</b> · ' + cctlRange(run.d0, run.d1) +
+    (others.length ? ' · also ' + others.map(function (x) { return flag(x) + ' ' + esc(ccName(x)); }).join(', ') + ' that day' : ' · ' + fmt(n) + ' day' + (n > 1 ? 's' : '')) +
+    ' <span class="fine" style="display:inline">(' + fmt(c.n) + ' in total)</span>';
+  $('cctlBars').querySelectorAll('b').forEach(function (b) { b.classList.toggle('on', +b.dataset.r === r && +b.dataset.p === p); });
+}
+$('cctlBars').addEventListener('click', function (ev) { var b = ev.target.closest('b[data-r]'); if (b && CT) cctlSay(+b.dataset.r, +b.dataset.p); });
+$('cctlLegend').addEventListener('click', function (ev) {
+  var b = ev.target.closest('button[data-cc]');
+  if (!b || !CT) return;
+  var cc = b.dataset.cc, c = CT.byCc[cc], sc = $('cctlScroll');
+  CT.on = { cc: cc, r: null };
+  $('cctlBars').querySelectorAll('b').forEach(function (x) { x.classList.toggle('on', CT.runs[+x.dataset.r].parts[+x.dataset.p] === cc); });
+  $('cctlInfo').innerHTML = '<span class="cctl-sw" style="background:' + c.color + ';vertical-align:-1px"></span> <b>' + flag(cc) + ' ' + esc(ccName(cc)) + '</b> · ' + fmt(c.n) + ' day' + (c.n > 1 ? 's' : '') + (c.first === c.last ? ' · ' + niceDate(c.first) : ' · first ' + niceDate(c.first) + ', last ' + niceDate(c.last));
+  var x = (c.first - CT.lo) * CT.ppd;
+  if (x < sc.scrollLeft || x > sc.scrollLeft + sc.clientWidth - 20) sc.scrollLeft = x - 20;
+});
+$('cctlIn').addEventListener('click', function () { if (CT) cctlZoom(CT.ppd * 2); });
+$('cctlOut').addEventListener('click', function () { if (CT) cctlZoom(CT.ppd / 2); });
+$('cctlFit').addEventListener('click', cctlFit);
+(function () {
+  var sc = $('cctlScroll'), raf = 0, pinch = null;
+  sc.addEventListener('scroll', function () { if (!raf) raf = requestAnimationFrame(function () { raf = 0; cctlAxis(); }); }, { passive: true });
+  // Ctrl+wheel, which is also what a trackpad pinch sends, zooms around the pointer.
+  sc.addEventListener('wheel', function (ev) {
+    if (!CT || !ev.ctrlKey) return;
+    ev.preventDefault();
+    cctlZoom(CT.ppd * Math.exp(-ev.deltaY * 0.01), ev.clientX - sc.getBoundingClientRect().left);
+  }, { passive: false });
+  function two(ev) { var a = ev.touches[0], b = ev.touches[1]; return { d: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) || 1, x: (a.clientX + b.clientX) / 2 - sc.getBoundingClientRect().left }; }
+  sc.addEventListener('touchstart', function (ev) { if (CT && ev.touches.length === 2) { var t = two(ev); pinch = { d: t.d, ppd: CT.ppd }; } }, { passive: true });
+  sc.addEventListener('touchmove', function (ev) {
+    if (!pinch || ev.touches.length !== 2) return;
+    ev.preventDefault();
+    var t = two(ev);
+    cctlZoom(pinch.ppd * t.d / pinch.d, t.x);
+  }, { passive: false });
+  sc.addEventListener('touchend', function (ev) { if (ev.touches.length < 2) pinch = null; });
+  // The Insights tab may be drawn while hidden, so fit again once the strip has a width.
+  if (window.ResizeObserver) new ResizeObserver(function () { if (!CT) return; if (CT.fit) cctlFit(); else cctlZoom(CT.ppd); cctlAxis(); }).observe(sc);
+})();
 function renderCo2() {
   var by = {}, total = 0, days = {};
   for (var j = 0; j < sel.length; j++) { var i = sel[j], g = groupOf(modeOf(i)), kg = tripKg(i); by[g.key] = (by[g.key] || 0) + kg; total += kg; days[D.day[i]] = 1; }

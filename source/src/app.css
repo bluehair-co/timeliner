@@ -18,6 +18,7 @@
   --m-bike: #6250d6;
   --m-water: #e87ba4;
   --m-other: #9aa49d;
+  --cc1: #2a78d6; --cc2: #eb6834; --cc3: #1baf7a; --cc4: #eda100; --cc5: #e87ba4; --cc6: #008300; --cc7: #6250d6; --cc8: #e34948;
   --dot: #d0342c;
   --shadow: 0 8px 28px rgba(20, 40, 25, .16);
   --font-display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
@@ -34,6 +35,7 @@
     --bg: #0f1411; --panel: #161c18; --glass: rgba(22, 28, 24, .92); --fg: #e8eee9; --muted: #9aa69d; --line: #26302a; --grid: #222b25;
     --chip: #1d2520; --chip-on-bg: #1f3a29; --chip-on-fg: #9fe0b7; --accent: #5cc48a; --accent-fg: #08140d;
     --m-road: #3987e5; --m-air: #d95926; --m-transit: #199e70; --m-foot: #c98500; --m-bike: #9085e9; --m-water: #d55181; --m-other: #5d6961;
+    --cc1: #3987e5; --cc2: #d95926; --cc3: #199e70; --cc4: #c98500; --cc5: #d55181; --cc6: #008300; --cc7: #9085e9; --cc8: #e66767;
     --dot: #ff6b5e; --shadow: 0 8px 28px rgba(0, 0, 0, .5);
     color-scheme: dark;
   }
@@ -42,6 +44,7 @@
   --bg: #0f1411; --panel: #161c18; --glass: rgba(22, 28, 24, .92); --fg: #e8eee9; --muted: #9aa69d; --line: #26302a; --grid: #222b25;
   --chip: #1d2520; --chip-on-bg: #1f3a29; --chip-on-fg: #9fe0b7; --accent: #5cc48a; --accent-fg: #08140d;
   --m-road: #3987e5; --m-air: #d95926; --m-transit: #199e70; --m-foot: #c98500; --m-bike: #9085e9; --m-water: #d55181; --m-other: #5d6961;
+    --cc1: #3987e5; --cc2: #d95926; --cc3: #199e70; --cc4: #c98500; --cc5: #d55181; --cc6: #008300; --cc7: #9085e9; --cc8: #e66767;
   --dot: #ff6b5e; --shadow: 0 8px 28px rgba(0, 0, 0, .5);
   color-scheme: dark;
 }
@@ -357,3 +360,23 @@ svg text { font-family: var(--font-body); font-size: 11px; fill: var(--muted); }
 #insightsPage .pnav { position: sticky; z-index: 5; top: -4px; margin-top: -4px; margin-bottom: 14px; margin-inline: max(-4px, calc((100% - 560px) / 2)); width: auto; max-width: 560px; }
 .pnav-filters { position: relative; flex: none; }
 .pnav-filters .badge { position: absolute; top: 0; right: 0; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px; background: var(--accent); color: var(--accent-fg); font-size: 11px; font-weight: 600; display: flex; align-items: center; justify-content: center; }
+
+/* countries over time */
+.cctl-scroll { overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; touch-action: pan-x; border-radius: 8px; background: var(--grid); scrollbar-width: thin; }
+.cctl-track { position: relative; height: 74px; min-width: 100%; }
+.cctl-bars { position: absolute; left: 0; right: 0; top: 0; height: 44px; }
+.cctl-bars b { position: absolute; top: 0; bottom: 0; display: flex; align-items: center; justify-content: center; gap: 3px; overflow: hidden; font-weight: 600; font-size: 12px; color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, .55); cursor: pointer; white-space: nowrap; }
+.cctl-bars b.g { box-shadow: inset -2px 0 0 var(--grid); }
+.cctl-bars b.on { outline: 2px solid var(--fg); outline-offset: -2px; z-index: 1; }
+.cctl-bars b .f { font-size: 15px; text-shadow: none; }
+.cctl-axis { position: absolute; left: 0; right: 0; top: 44px; bottom: 0; border-top: 1px solid var(--line); }
+.cctl-axis i { position: absolute; top: 0; height: 6px; border-left: 1px solid var(--muted); font-style: normal; }
+.cctl-axis i.major { height: 12px; border-left-color: var(--fg); }
+.cctl-axis span { position: absolute; top: 12px; font-size: 11px; color: var(--muted); white-space: nowrap; padding-left: 3px; font-variant-numeric: tabular-nums; }
+.cctl-axis span.major { color: var(--fg); font-weight: 600; }
+.cctl-info { min-height: 20px; margin: 8px 0 10px; font-size: 13px; }
+.cctl-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.cctl-legend button { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; padding: 2px 0; color: var(--fg); font: inherit; font-size: 13px; cursor: pointer; }
+.cctl-legend button small { color: var(--muted); font-variant-numeric: tabular-nums; }
+.cctl-sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; flex: none; }
+#cctlCard .card-head .seg button { padding: 5px 12px; font-size: 14px; }

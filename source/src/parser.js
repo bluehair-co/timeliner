@@ -923,6 +923,15 @@ function stravaTypes(txt) {
   }
   return out;
 }
+// activities.csv sometimes gives a broader type than the activity file (Water Sport where the
+// file, like the Strava app, says Kayaking). Its type wins only when it is a known sport, or a
+// virtual activity to skip; otherwise the file's type is used when that one is known.
+function pickType(csvType, fileType) {
+  if (csvType == null || csvType === '') return fileType;
+  var c = stravaSport(csvType);
+  if (c.sport || c.mode === null) return csvType;
+  return stravaSport(fileType).sport ? fileType : csvType;
+}
 function parseStravaZip(file, onProgress) {
   return zipEntries(file).then(function (all) {
     var acts = all.filter(function (e) { return /(^|\/)activities\/[^/]+\.(gpx|tcx|fit)(\.gz)?$/i.test(e.name); });
@@ -935,7 +944,7 @@ function parseStravaZip(file, onProgress) {
       var en = acts[i], key = en.name.replace(/^.*?(activities\/)/, '$1');
       return zipRead(file, en).then(function (b) { return maybeGunzip(en.name, b); }).then(function (b) {
         var a = readActivity(en.name, b), row = types[key], t = row && row.type;
-        if (!addStrava(c, t != null && t !== '' ? t : a.type, a, { file: key, csvType: t == null ? null : t, csv: row ? row.csv : null })) skipped++;
+        if (!addStrava(c, pickType(t, a.type), a, { file: key, csvType: t == null ? null : t, csv: row ? row.csv : null })) skipped++;
       }).catch(function () { skipped++; }).then(function () {
         if (i % 20 === 0) onProgress((i + 1) / acts.length);
         return step(null, i + 1);

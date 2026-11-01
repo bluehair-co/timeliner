@@ -87,6 +87,8 @@ function rematchSports(S) {
   for (var i = 0; i < S.stype.length; i++) {
     if (S.sport[i] || !S.stype[i]) continue;
     var st = stravaSport(S.stype[i]);
+    // The activity file's own type, when activities.csv gave one Timeliner doesn't know (see pickType).
+    if (!st.sport && S.smeta && S.smeta[i] && S.smeta[i].fileType) { st = stravaSport(S.smeta[i].fileType); if (st.sport) S.smeta[i].typeUsed = S.smeta[i].fileType; }
     if (!st.sport) continue;
     S.sport[i] = st.sport; S.mode[i] = MODE_IDX[st.mode]; S.est[i] &= ~GUESSED; S.stype[i] = '';
   }

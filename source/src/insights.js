@@ -480,7 +480,10 @@ function ccGuesses(lo, hi, runs, byCc, list) {
   return out;
 }
 function renderCcTimeline(list, perDay, visits) {
-  var card = $('cctlCard');
+  var card = $('cctlCard'), off = F.modes.size !== M.modes.length || F.sports.size !== M.sports.length;
+  // Only with every kind of transport: a filtered set of trips leaves holes in where you were.
+  card.classList.toggle('off', off); $('cctlOff').hidden = !off;
+  if (off) { card.hidden = false; CT = null; return; }
   if (list.length < 2) { card.hidden = true; CT = null; return; }
   list = list.slice();   // countries only guessed get added here, not to the Countries list
   card.hidden = false;
@@ -649,6 +652,10 @@ $('cctlLegend').addEventListener('click', function (ev) {
 $('cctlIn').addEventListener('click', function () { if (CT) cctlZoom(CT.ppd * 2); });
 $('cctlOut').addEventListener('click', function () { if (CT) cctlZoom(CT.ppd / 2); });
 $('cctlFit').addEventListener('click', cctlFit);
+$('cctlAllModes').addEventListener('click', function () {
+  F.modes = new Set(M.modes); F.sports = new Set(M.sports);
+  syncFilterUI(); changed();
+});
 (function () {
   var sc = $('cctlScroll'), raf = 0, pinch = null;
   sc.addEventListener('scroll', function () { if (!raf) raf = requestAnimationFrame(function () { raf = 0; cctlAxis(); }); }, { passive: true });

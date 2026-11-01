@@ -27,7 +27,11 @@ A file in the on-device Timeline.json format with `"simulated": true` at the top
 
 ## Times
 
-Times and dates show the local time where you were. The on-device Timeline.json writes each time with its UTC offset, which is used as it is. Takeout's Semantic Location History, Records.json and Strava write times in UTC only, so those trips and stays take the time zone of the place they started (found from the country borders and time zone data built into the app, daylight saving included). Only when no time zone can be found, such as far out at sea, does a time fall back to this device's time zone.
+Times and dates show the local time where you were. The on-device Timeline.json writes each time with its UTC offset, which is used as it is. Takeout's Semantic Location History, Records.json and Strava write times in UTC only, so those trips and stays take the time zone of the place they started (found from the country borders and time zone data built into the app, daylight saving included). Only when no time zone can be found, such as far out at sea, does a time fall back to this device's time zone. Some older trips in the on-device Timeline.json carry winter time all year round (UTC+1 for Spain in September); when a file's offset is the place's offset in the other season but not on that day, the place's offset is used instead.
+
+## Countries
+
+A place's country comes from the built-in borders. Places just off the simplified coastline, such as a beach or a harbour, take the country with the nearest border within 25 km, unless an airport is closer (for small islands the borders leave out); further out at sea they take the nearest airport's country. Gibraltar and the Vatican, too small for the simplified borders, are outlined by hand.
 
 ## Layout
 

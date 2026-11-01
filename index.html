@@ -1986,9 +1986,20 @@ function decodeCountries() {
     });
   });
 }
+// Places too small to survive the simplified borders, outlined by hand (lat, lng pairs).
+var SMALL_PLACES = {
+  GI: [36.1555, -5.3665, 36.1555, -5.3385, 36.142, -5.3375, 36.125, -5.3355, 36.109, -5.3445, 36.114, -5.353, 36.130, -5.358, 36.140, -5.364, 36.148, -5.368],
+  VA: [41.9075, 12.4460, 41.9075, 12.4580, 41.9000, 12.4590, 41.9000, 12.4455]
+};
+function inPolygon(lat, lng, P) {
+  for (var i = 0, j = P.length - 2, hit = false; i < P.length; j = i, i += 2)
+    if ((P[i] > lat) !== (P[j] > lat) && lng < (P[j + 1] - P[i + 1]) * (lat - P[i]) / (P[j] - P[i]) + P[i + 1]) hit = !hit;
+  return hit;
+}
 function countryAt(lat, lng) {
   if (!isFinite(lat)) return '';
   if (!CB) decodeCountries();
+  for (var sp in SMALL_PLACES) if (inPolygon(lat, lng, SMALL_PLACES[sp])) return sp;
   var cell = CB.grid[Math.floor(lng / 5) + ',' + Math.floor(lat / 5)] || [], inside = {};
   // Even-odd test over all of a country's rings, so holes (like Lesotho inside South Africa) work.
   for (var k = 0; k < cell.length; k++) {
@@ -2001,9 +2012,38 @@ function countryAt(lat, lng) {
     if (hit) inside[e.cc] = !inside[e.cc];
   }
   for (var cc in inside) if (inside[cc]) return cc;
-  // Just off a simplified coastline: use the nearest airport's country.
-  var ap = nearestAirport(lat, lng);
+  // Just off a simplified coastline (beaches and harbours often are): use the country whose
+  // border is nearest. The nearest airport's country was wrong near small neighbours, such as
+  // Marbella's coast coming out as Gibraltar, whose airport is closer than Málaga's.
+  // An airport closer than any border still wins, for small islands the simplified borders
+  // leave out (Kastelorizo, Matsu, Macau's airport) and further out at sea.
+  var near = nearestBorder(lat, lng, NEAR_BORDER_KM), ap = nearestAirport(lat, lng);
+  if (near && !(ap && km([lat, lng], [ap.lat, ap.lng]) < near.km)) return near.cc;
   return ap ? ap.cc : '';
+}
+var NEAR_BORDER_KM = 25;
+// The country whose border is nearest a place, within maxKm, as {cc, km}, or null.
+function nearestBorder(lat, lng, maxKm) {
+  var r = Math.PI / 180, kx = 111.32 * Math.cos(lat * r), ky = 110.57, dLat = maxKm / ky, dLng = maxKm / Math.max(kx, 1);
+  var best = '', bd = maxKm * maxKm, seen = new Set();
+  for (var gx = Math.floor((lng - dLng) / 5); gx <= Math.floor((lng + dLng) / 5); gx++)
+    for (var gy = Math.floor((lat - dLat) / 5); gy <= Math.floor((lat + dLat) / 5); gy++) {
+      var cell = CB.grid[gx + ',' + gy] || [];
+      for (var k = 0; k < cell.length; k++) {
+        var e = cell[k];
+        if (seen.has(e.ring) || lng < e.minX - dLng || lng > e.maxX + dLng || lat < e.minY - dLat || lat > e.maxY + dLat) continue;
+        seen.add(e.ring);
+        var R = e.ring, n = R.length;
+        // Distance to each edge on a flat projection around the place, which is close enough within 25 km.
+        for (var i = 0, j = n - 2; i < n; j = i, i += 2) {
+          var ax = (R[j] - lng) * kx, ay = (R[j + 1] - lat) * ky, bx = (R[i] - lng) * kx, by = (R[i + 1] - lat) * ky;
+          var dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy, t = l2 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / l2)) : 0;
+          var px = ax + t * dx, py = ay + t * dy, d2 = px * px + py * py;
+          if (d2 < bd) { bd = d2; best = e.cc; }
+        }
+      }
+    }
+  return best ? { cc: best, km: Math.sqrt(bd) } : null;
 }
 var countryNames = null;
 try { countryNames = new Intl.DisplayNames(['en'], { type: 'region' }); } catch (e) { /* older browser */ }
@@ -2065,11 +2105,14 @@ function nearestCity(lat, lng) {
 }
 
 // ---------- time zones ----------
+// Countries the time zone data leaves out.
+var SMALL_ZONES = { VA: 'Europe/Vatican', MC: 'Europe/Monaco' };
 var TZP = null;
 function zoneAt(lat, lng) {
   if (typeof TZDATA === 'undefined' || !isFinite(lat)) return null;
   var cc = countryAt(lat, lng);
   if (cc && TZDATA.s[cc] != null) return TZDATA.z[TZDATA.s[cc]];
+  if (SMALL_ZONES[cc]) return SMALL_ZONES[cc];
   if (!TZP) TZP = TZDATA.p.split(';').map(function (x) { var f = x.slice(2).split(','); return { cc: x.slice(0, 2), lat: +f[0], lng: +f[1], z: +f[2] }; });
   var best = null, bd = Infinity;
   for (var k = 0; k < TZP.length; k++) {
@@ -2165,15 +2208,34 @@ function fillOffsets(R) {
     var o = z ? zoneOffset(z, ms) : null;
     return o == null ? NO_OFF : o;
   }
+  // Google's on-device Timeline.json writes winter time all year round on some older trips
+  // (UTC+1 for Spain in September). When the offset in the file is the place's offset in the
+  // other half of the year but not on the day, it is that mistake: use the place's offset.
+  // Any other difference is left as the file says, as the place's zone can be off by an hour
+  // near the zone borders inside a country.
+  function wrongSeason(off, lat, lng, ms) {
+    var o = offAt(lat, lng, ms);
+    if (o === NO_OFF || o === off) return NO_OFF;
+    var y = new Date(ms).getUTCFullYear();
+    return off === offAt(lat, lng, Date.UTC(y, 0, 15)) || off === offAt(lat, lng, Date.UTC(y, 6, 15)) ? o : NO_OFF;
+  }
   var i, o;
   for (i = 0; R.off && i < R.off.length; i++) {
-    if (R.off[i] !== NO_OFF) continue;
+    if (R.off[i] !== NO_OFF) {
+      o = wrongSeason(R.off[i], R.from[2 * i], R.from[2 * i + 1], R.start[i]);
+      if (o !== NO_OFF) { R.off[i] = o; R.day[i] = Math.floor((R.start[i] + o * 60000) / 864e5); }
+      continue;
+    }
     o = offAt(R.from[2 * i], R.from[2 * i + 1], R.start[i]);
     if (o === NO_OFF) o = offAt(R.to[2 * i], R.to[2 * i + 1], R.start[i]);
     if (o !== NO_OFF) { R.off[i] = o; R.day[i] = Math.floor((R.start[i] + o * 60000) / 864e5); }
   }
   for (i = 0; R.voff && i < R.voff.length; i++) {
-    if (R.voff[i] !== NO_OFF) continue;
+    if (R.voff[i] !== NO_OFF) {
+      o = wrongSeason(R.voff[i], R.vll[2 * i], R.vll[2 * i + 1], R.vs[i]);
+      if (o !== NO_OFF) { R.voff[i] = o; R.vday[i] = Math.floor((R.vs[i] + o * 60000) / 864e5); }
+      continue;
+    }
     o = offAt(R.vll[2 * i], R.vll[2 * i + 1], R.vs[i]);
     if (o !== NO_OFF) { R.voff[i] = o; R.vday[i] = Math.floor((R.vs[i] + o * 60000) / 864e5); }
   }

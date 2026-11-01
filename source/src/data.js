@@ -48,15 +48,34 @@ function fillOffsets(R) {
     var o = z ? zoneOffset(z, ms) : null;
     return o == null ? NO_OFF : o;
   }
+  // Google's on-device Timeline.json writes winter time all year round on some older trips
+  // (UTC+1 for Spain in September). When the offset in the file is the place's offset in the
+  // other half of the year but not on the day, it is that mistake: use the place's offset.
+  // Any other difference is left as the file says, as the place's zone can be off by an hour
+  // near the zone borders inside a country.
+  function wrongSeason(off, lat, lng, ms) {
+    var o = offAt(lat, lng, ms);
+    if (o === NO_OFF || o === off) return NO_OFF;
+    var y = new Date(ms).getUTCFullYear();
+    return off === offAt(lat, lng, Date.UTC(y, 0, 15)) || off === offAt(lat, lng, Date.UTC(y, 6, 15)) ? o : NO_OFF;
+  }
   var i, o;
   for (i = 0; R.off && i < R.off.length; i++) {
-    if (R.off[i] !== NO_OFF) continue;
+    if (R.off[i] !== NO_OFF) {
+      o = wrongSeason(R.off[i], R.from[2 * i], R.from[2 * i + 1], R.start[i]);
+      if (o !== NO_OFF) { R.off[i] = o; R.day[i] = Math.floor((R.start[i] + o * 60000) / 864e5); }
+      continue;
+    }
     o = offAt(R.from[2 * i], R.from[2 * i + 1], R.start[i]);
     if (o === NO_OFF) o = offAt(R.to[2 * i], R.to[2 * i + 1], R.start[i]);
     if (o !== NO_OFF) { R.off[i] = o; R.day[i] = Math.floor((R.start[i] + o * 60000) / 864e5); }
   }
   for (i = 0; R.voff && i < R.voff.length; i++) {
-    if (R.voff[i] !== NO_OFF) continue;
+    if (R.voff[i] !== NO_OFF) {
+      o = wrongSeason(R.voff[i], R.vll[2 * i], R.vll[2 * i + 1], R.vs[i]);
+      if (o !== NO_OFF) { R.voff[i] = o; R.vday[i] = Math.floor((R.vs[i] + o * 60000) / 864e5); }
+      continue;
+    }
     o = offAt(R.vll[2 * i], R.vll[2 * i + 1], R.vs[i]);
     if (o !== NO_OFF) { R.voff[i] = o; R.vday[i] = Math.floor((R.vs[i] + o * 60000) / 864e5); }
   }

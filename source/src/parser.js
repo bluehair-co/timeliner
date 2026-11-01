@@ -116,7 +116,8 @@ Collector.prototype.add = function (mode, st, et, dist, est, a, b, pts, ptsT) {
   if (!st || !(dist > 0) || dist > 25000) return;
   var given = dist;
   var cap = MAX_KMH[mode], hours = et ? (et.ms - st.ms) / 36e5 : 0;
-  if (cap && hours > 0 && dist / hours > cap) {
+  // A distance measured along a full GPS recording (Strava) is kept as it is.
+  if (cap && hours > 0 && dist / hours > cap && !this.gps) {
     // Too fast for this mode: trust the GPS trail if there is one, else the straight line, never more than Timeline said.
     var ln = km(a, b), trail = pts && pts.length ? pathKm([a].concat(pts, [b]).filter(Boolean)) : 0;
     var alt = trail > ln && trail / hours <= cap ? trail : ln, altEst = alt === trail && trail > ln ? 1 : 2;
@@ -132,7 +133,7 @@ Collector.prototype.add = function (mode, st, et, dist, est, a, b, pts, ptsT) {
     // Untyped trips often carry a broken distance (e.g. 148 km for a 16 km hop).
     // When it's far longer than the straight line between the ends, use the straight line.
     var line = km(a, b);
-    if (line > 0 && dist > 3 * line + 5) { dist = line; est = 2; }
+    if (line > 0 && dist > 3 * line + 5 && !this.gps) { dist = line; est = 2; }
     var g = guessMode(dist, (et.ms - st.ms) / 36e5);
     // Too fast for the ground but under 250 km apart is a GPS jump, not a flight: leave it out.
     if (g === 'FLYING' && !(line >= 250)) g = null;
@@ -811,17 +812,20 @@ function addStrava(c, type, a) {
   // Distance on a lightly smoothed track, so GPS jitter while standing still doesn't add up.
   var dist = pathKm(simplify(pts, 2).map(function (i) { return pts[i]; })), keep = simplify(pts, 6);
   var inner = keep.slice(1, -1), n = pts.length - 1, before = c.start.length;
+  c.gps = true;
   c.add(mode || 'UNKNOWN', { ms: ts[0], off: null }, { ms: ts[n], off: null }, dist, 1, pts[0], pts[n],
     inner.map(function (i) { return pts[i]; }), inner.map(function (i) { return ts[i]; }));
   if (c.start.length === before) return false;
   (c.sport || (c.sport = [])).push(st.sport);
+  // A type Timeliner doesn't know is kept by name, to show on the trip.
+  (c.stype || (c.stype = [])).push(st.sport ? '' : String(type == null || /^\d+$/.test(String(type).trim()) ? '' : type).trim());
   return true;
 }
 function finishStrava(c) {
   if (!c.start.length) throw new Error(NO_STRAVA);
   var r = finish(c, SRC.strava);
   for (var i = 0; i < r.est.length; i++) r.est[i] |= STRAVA;
-  r.sport = Uint8Array.from(c.sport);
+  r.sport = Uint8Array.from(c.sport); r.stype = c.stype;
   r.strava = true;
   return r;
 }

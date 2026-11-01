@@ -31,7 +31,12 @@ Times and dates show the local time where you were. The on-device Timeline.json 
 
 ## Countries
 
-A place's country comes from the built-in borders. Places just off the simplified coastline, such as a beach or a harbour, take the country with the nearest border within 25 km, unless an airport is closer (for small islands the borders leave out); further out at sea they take the nearest airport's country. Gibraltar and the Vatican, too small for the simplified borders, are outlined by hand.
+A place's country comes from the built-in borders (Natural Earth, simplified to about 1 km), with these rules everywhere:
+
+- Places just off the simplified coastline, such as a beach or a harbour, take the country with the nearest border within 25 km, unless an airport is closer (for small islands the borders leave out). Further out at sea they take the nearest airport's country.
+- Overseas parts the borders fold into another country (Réunion, Guadeloupe, Martinique, French Guiana, Mayotte, Bonaire, Christmas Island…) are found from the airport data and keep their own code and time zone: a place takes the territory when one of its airports is within 300 km and closer than any of the main country's airports.
+- Within 3 km of a border, an airport within 5 km on the other side decides which side a place is on, as the simplified line can put a border town on the wrong side.
+- Gibraltar, the Vatican, Ceuta and Melilla, which the borders leave out or give to a neighbour, are outlined by hand.
 
 ## Layout
 

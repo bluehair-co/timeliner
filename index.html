@@ -1986,8 +1986,11 @@ function decodeCountries() {
     });
   });
 }
-// Places too small to survive the simplified borders, outlined by hand (lat, lng pairs).
+// Places the simplified borders leave out or give to a neighbour, outlined by hand (lat, lng
+// pairs, about 300 m off at most): Gibraltar, the Vatican, and Spain's Ceuta and Melilla.
 var SMALL_PLACES = {
+  ES: [35.915, -5.382, 35.902, -5.338, 35.915, -5.300, 35.905, -5.272, 35.888, -5.276, 35.877, -5.303, 35.871, -5.345, 35.880, -5.371],
+  'ES ': [35.317, -2.955, 35.306, -2.926, 35.290, -2.924, 35.270, -2.943, 35.274, -2.966, 35.290, -2.973, 35.306, -2.969],
   GI: [36.1555, -5.3665, 36.1555, -5.3385, 36.142, -5.3375, 36.125, -5.3355, 36.109, -5.3445, 36.114, -5.353, 36.130, -5.358, 36.140, -5.364, 36.148, -5.368],
   VA: [41.9075, 12.4460, 41.9075, 12.4580, 41.9000, 12.4590, 41.9000, 12.4455]
 };
@@ -1999,7 +2002,32 @@ function inPolygon(lat, lng, P) {
 function countryAt(lat, lng) {
   if (!isFinite(lat)) return '';
   if (!CB) decodeCountries();
-  for (var sp in SMALL_PLACES) if (inPolygon(lat, lng, SMALL_PLACES[sp])) return sp;
+  for (var sp in SMALL_PLACES) if (inPolygon(lat, lng, SMALL_PLACES[sp])) return sp.trim();
+  var p = polyCountry(lat, lng), ap;
+  if (p) {
+    // Overseas parts the borders file folds into their country (Réunion, Guadeloupe and French
+    // Guiana into France, Bonaire into the Netherlands): they keep their own code.
+    var t = territoryAt(lat, lng, p);
+    if (t) return t;
+    // Within a few km of a border the simplified line can put a town on the wrong side
+    // (Melilla, Eilat, Leticia). An airport within 5 km on the other side settles it.
+    ap = nearestAirport(lat, lng);
+    if (ap && ap.cc !== p && km([lat, lng], [ap.lat, ap.lng]) < BORDER_AIRPORT_KM && nearestBorder(lat, lng, BORDER_FUZZ_KM, ap.cc)) return ap.cc;
+    return p;
+  }
+  // Just off a simplified coastline (beaches and harbours often are): use the country whose
+  // border is nearest. The nearest airport's country was wrong near small neighbours, such as
+  // Marbella's coast coming out as Gibraltar, whose airport is closer than Málaga's.
+  // An airport closer than any border still wins, for small islands the simplified borders
+  // leave out (Kastelorizo, Matsu, Macau's airport) and further out at sea.
+  var near = nearestBorder(lat, lng, NEAR_BORDER_KM);
+  ap = nearestAirport(lat, lng);
+  if (near && !(ap && km([lat, lng], [ap.lat, ap.lng]) < near.km)) return territoryAt(lat, lng, near.cc) || near.cc;
+  return ap ? ap.cc : '';
+}
+var BORDER_AIRPORT_KM = 5, BORDER_FUZZ_KM = 3;
+// The country whose borders hold a place, or ''.
+function polyCountry(lat, lng) {
   var cell = CB.grid[Math.floor(lng / 5) + ',' + Math.floor(lat / 5)] || [], inside = {};
   // Even-odd test over all of a country's rings, so holes (like Lesotho inside South Africa) work.
   for (var k = 0; k < cell.length; k++) {
@@ -2012,18 +2040,39 @@ function countryAt(lat, lng) {
     if (hit) inside[e.cc] = !inside[e.cc];
   }
   for (var cc in inside) if (inside[cc]) return cc;
-  // Just off a simplified coastline (beaches and harbours often are): use the country whose
-  // border is nearest. The nearest airport's country was wrong near small neighbours, such as
-  // Marbella's coast coming out as Gibraltar, whose airport is closer than Málaga's.
-  // An airport closer than any border still wins, for small islands the simplified borders
-  // leave out (Kastelorizo, Matsu, Macau's airport) and further out at sea.
-  var near = nearestBorder(lat, lng, NEAR_BORDER_KM), ap = nearestAirport(lat, lng);
-  if (near && !(ap && km([lat, lng], [ap.lat, ap.lng]) < near.km)) return near.cc;
-  return ap ? ap.cc : '';
+  return '';
 }
+// Territories with airports but no borders of their own, found from the data: each airport
+// whose country has no borders, under the country whose borders hold it.
+var TERR = null;
+function territoryAt(lat, lng, parent) {
+  if (!TERR) {
+    if (!AP) buildAirports();
+    TERR = {};
+    AP.all.forEach(function (a) {
+      if (CB.rings[a.cc]) return;
+      var pc = polyCountry(a.lat, a.lng);
+      if (pc) (TERR[pc] || (TERR[pc] = [])).push(a);
+    });
+  }
+  var list = TERR[parent];
+  if (!list) return '';
+  var best = null, bd = TERRITORY_KM;
+  for (var k = 0; k < list.length; k++) {
+    var d = km([lat, lng], [list[k].lat, list[k].lng]);
+    if (d < bd) { bd = d; best = list[k]; }
+  }
+  if (!best) return '';
+  // Still the country itself where one of its own airports is closer.
+  var own = AP.byCc[parent] || [];
+  for (k = 0; k < own.length; k++) if (km([lat, lng], [own[k].lat, own[k].lng]) < bd) return '';
+  return best.cc;
+}
+var TERRITORY_KM = 300;
 var NEAR_BORDER_KM = 25;
 // The country whose border is nearest a place, within maxKm, as {cc, km}, or null.
-function nearestBorder(lat, lng, maxKm) {
+// With only, just that country's border.
+function nearestBorder(lat, lng, maxKm, only) {
   var r = Math.PI / 180, kx = 111.32 * Math.cos(lat * r), ky = 110.57, dLat = maxKm / ky, dLng = maxKm / Math.max(kx, 1);
   var best = '', bd = maxKm * maxKm, seen = new Set();
   for (var gx = Math.floor((lng - dLng) / 5); gx <= Math.floor((lng + dLng) / 5); gx++)
@@ -2031,7 +2080,7 @@ function nearestBorder(lat, lng, maxKm) {
       var cell = CB.grid[gx + ',' + gy] || [];
       for (var k = 0; k < cell.length; k++) {
         var e = cell[k];
-        if (seen.has(e.ring) || lng < e.minX - dLng || lng > e.maxX + dLng || lat < e.minY - dLat || lat > e.maxY + dLat) continue;
+        if ((only && e.cc !== only) || seen.has(e.ring) || lng < e.minX - dLng || lng > e.maxX + dLng || lat < e.minY - dLat || lat > e.maxY + dLat) continue;
         seen.add(e.ring);
         var R = e.ring, n = R.length;
         // Distance to each edge on a flat projection around the place, which is close enough within 25 km.
@@ -2054,13 +2103,14 @@ function flag(cc) { return /^[A-Z]{2}$/.test(cc) ? String.fromCodePoint(127397 +
 // ---------- airports and towns ----------
 var AP = null;
 function buildAirports() {
-  AP = { grid: {} };
+  AP = { grid: {}, all: [], byCc: {} };
   AIRPORTS.split(';').forEach(function (row) {
     var f = row.split('|');
     if (f.length < 6) return;
     var a = { code: f[0], lat: +f[1], lng: +f[2], city: f[3], cc: f[4], w: f[5] === 'L' ? 0.6 : f[5] === 'M' ? 0.8 : 1 };
     var key = Math.floor(a.lat) + ',' + Math.floor(a.lng);
     (AP.grid[key] || (AP.grid[key] = [])).push(a);
+    AP.all.push(a); (AP.byCc[a.cc] || (AP.byCc[a.cc] = [])).push(a);
   });
 }
 function nearestAirport(lat, lng) {

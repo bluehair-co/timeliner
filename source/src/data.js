@@ -80,8 +80,20 @@ function tagCountries() {
   for (var v = 0; v < nv; v++) { var c = code(D.vll[2 * v], D.vll[2 * v + 1]); D.vcc[v] = c; D.ccCount[c]++; }
 }
 
+// Strava types an earlier version didn't know are matched again, so a newly added sport
+// shows up without loading the export again.
+function rematchSports(S) {
+  if (!S || !S.stype) return;
+  for (var i = 0; i < S.stype.length; i++) {
+    if (S.sport[i] || !S.stype[i]) continue;
+    var st = stravaSport(S.stype[i]);
+    if (!st.sport) continue;
+    S.sport[i] = st.sport; S.mode[i] = MODE_IDX[st.mode]; S.est[i] &= ~GUESSED; S.stype[i] = '';
+  }
+}
 function setData(R) {
   RAW = upgrade(R);
+  rematchSports(RAW.strava);
   D = withStrava(RAW);
   $('app').classList.remove('no-data');
   var n = D.day.length, nv = D.vs.length, i, yc = {}, present = {}, sp = {}, plain = {};
@@ -643,7 +655,7 @@ function merge(base, parts) {
 function gather(all, out, src) {
   var n = out.length, npts = 0;
   var R = { start: new Float64Array(n), end: new Float64Array(n), day: new Int32Array(n), mode: new Uint8Array(n),
-    km: new Float32Array(n), est: new Uint8Array(n), off: new Int16Array(n), orig: new Float32Array(n), from: new Float32Array(2 * n), to: new Float32Array(2 * n), srcs: new Uint8Array(n), sport: new Uint8Array(n), stype: [] };
+    km: new Float32Array(n), est: new Uint8Array(n), off: new Int16Array(n), orig: new Float32Array(n), from: new Float32Array(2 * n), to: new Float32Array(2 * n), srcs: new Uint8Array(n), sport: new Uint8Array(n), stype: [], smeta: [] };
   out.forEach(function (x) { var p = all[x[0]]; npts += p.pathOff[x[1] + 1] - p.pathOff[x[1]]; });
   R.pathPts = new Float32Array(2 * npts); R.pathT = new Float32Array(npts); R.pathOff = new Uint32Array(n + 1);
   var w = 0;
@@ -652,7 +664,7 @@ function gather(all, out, src) {
     R.start[j] = p.start[i]; R.end[j] = p.end[i]; R.day[j] = p.day[i]; R.mode[j] = p.mode[i]; R.km[j] = p.km[i]; R.est[j] = p.est[i];
     R.off[j] = p.off ? p.off[i] : NO_OFF; R.orig[j] = p.orig ? p.orig[i] : 0;
     R.from[2 * j] = p.from[2 * i]; R.from[2 * j + 1] = p.from[2 * i + 1]; R.to[2 * j] = p.to[2 * i]; R.to[2 * j + 1] = p.to[2 * i + 1];
-    R.srcs[j] = src(p, i); R.sport[j] = p.sport ? p.sport[i] : 0; R.stype.push(p.stype && p.stype[i] || '');
+    R.srcs[j] = src(p, i); R.sport[j] = p.sport ? p.sport[i] : 0; R.stype.push(p.stype && p.stype[i] || ''); R.smeta.push(p.smeta && p.smeta[i] || null);
     for (var q = p.pathOff[i]; q < p.pathOff[i + 1]; q++, w++) { R.pathPts[2 * w] = p.pathPts[2 * q]; R.pathPts[2 * w + 1] = p.pathPts[2 * q + 1]; R.pathT[w] = p.pathT[q]; }
     R.pathOff[j + 1] = w;
   });

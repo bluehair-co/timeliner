@@ -297,11 +297,49 @@ function openTrip(i, fromList) {
     (r.notes.length ? '<p class="fine" style="margin-top:10px">' + r.notes.join(' ') + '</p>' : '') +
     '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:14px">' +
     (F.dm !== 'one' || F.unit !== 'day' || tab !== 'map' ? '<button type="button" class="btn" data-act="day" data-i="' + i + '">' + icon('calendar') + 'Show this day on the map</button>' : '') +
-    (tab !== 'timeline' ? '<button type="button" class="btn" data-act="tl" data-i="' + i + '">' + icon('history') + 'Open in Timeline</button>' : '') + '</div>';
+    (tab !== 'timeline' ? '<button type="button" class="btn" data-act="tl" data-i="' + i + '">' + icon('history') + 'Open in Timeline</button>' : '') +
+    '<button type="button" class="btn" data-act="raw" data-i="' + i + '" aria-expanded="false">{ } Raw data</button></div>' +
+    '<div id="rawWrap" hidden><div style="display:flex;gap:8px;margin:12px 0 8px"><button type="button" class="btn" data-act="copy" data-i="' + i + '">Copy</button>' +
+    '<button type="button" class="btn" data-act="save" data-i="' + i + '">Download</button></div><pre class="raw" id="rawPre"></pre></div>';
   $('tripSheetTitle').textContent = 'Trip';
   openSheet('tripSheet');
   $('tripBody').scrollTop = 0;
   if (tab === 'map') highlight(i);
+}
+// Everything Timeliner keeps about one trip, as JSON, to look into a trip without sharing the whole import.
+// Timeliner keeps what it read from the files, not the files themselves, so this is that.
+var EST_FLAGS = [[1, 'distance along the GPS trail'], [2, 'distance as a straight line'], [4, 'type guessed from speed'], [8, 'distance corrected'],
+  [16, 'from Strava'], [32, 'line from Records.json'], [64, 'made from GPS points without a trip']];
+function rawTrip(i) {
+  function iso(ms) { return new Date(ms).toISOString(); }
+  function ll(a, k) { return isFinite(a[2 * k]) ? [+a[2 * k].toFixed(6), +a[2 * k + 1].toFixed(6)] : null; }
+  var e = D.est[i], s = D.srcs ? D.srcs[i] : null, o = {
+    source: s === SRC.strava ? 'Strava' : s === SRC.sim ? 'Simulated' : KIND_LABEL[s] || 'Unknown',
+    type: tripLabel(i).replace(/&amp;/g, '&'), mode: modeOf(i),
+    sport: D.sport && D.sport[i] ? SPORTS[D.sport[i]][0] : null, stravaType: D.stype && D.stype[i] || null,
+    start: iso(D.start[i]), end: iso(D.end[i]), utcOffsetMin: D.off[i] === NO_OFF ? null : D.off[i], localDay: isoDay(D.day[i]),
+    km: +D.km[i].toFixed(3), fileKm: D.orig[i] > 0 ? +D.orig[i].toFixed(3) : null,
+    flags: EST_FLAGS.filter(function (f) { return e & f[0]; }).map(function (f) { return f[1]; }),
+    from: ll(D.from, i), to: ll(D.to, i)
+  };
+  if (e & 16) {
+    // The Timeline trips at the same time, including the ones this activity replaced.
+    o.strava = D.smeta && D.smeta[i] || 'Not kept: load the Strava export again to see what it says about this activity.';
+    o.timelineSameTime = [];
+    for (var j = 0; j < RAW.start.length; j++) {
+      if (RAW.end[j] <= D.start[i] || RAW.start[j] >= D.end[i]) continue;
+      o.timelineSameTime.push({ start: iso(RAW.start[j]), end: iso(RAW.end[j]), mode: MODES[RAW.mode[j]], km: +RAW.km[j].toFixed(3),
+        source: KIND_LABEL[RAW.srcs ? RAW.srcs[j] : RAW.src] || 'Unknown', from: ll(RAW.from, j), to: ll(RAW.to, j), points: RAW.pathOff[j + 1] - RAW.pathOff[j] });
+    }
+  }
+  // Each point: latitude, longitude, seconds after the start.
+  o.points = [];
+  for (var q = D.pathOff[i]; q < D.pathOff[i + 1]; q++) o.points.push([+D.pathPts[2 * q].toFixed(6), +D.pathPts[2 * q + 1].toFixed(6), Math.round(D.pathT[q])]);
+  return o;
+}
+function rawText(i) {
+  // One point per line keeps it readable.
+  return JSON.stringify(rawTrip(i), null, 1).replace(/\[\n\s+(-?[\d.]+),\n\s+(-?[\d.]+)(?:,\n\s+(-?[\d.]+))?\n\s+\]/g, function (_, a, b, c) { return '[' + a + ', ' + b + (c != null ? ', ' + c : '') + ']'; });
 }
 function openList(list) {
   listBack = list;
@@ -323,7 +361,23 @@ $('tripBody').addEventListener('click', function (ev) {
   var i = +b.dataset.i;
   if (b.dataset.act === 'day') { closeSheets(); setTab('map'); showDay(D.day[i]); }
   else if (b.dataset.act === 'tl') { closeSheets(); setTab('timeline'); tlSelect(i, true); }
-  else openTrip(i, true);
+  else if (b.dataset.act === 'raw') {
+    var open = $('rawWrap').hidden;
+    if (open) $('rawPre').textContent = rawText(i);
+    $('rawWrap').hidden = !open; b.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (open) $('rawWrap').scrollIntoView({ block: 'nearest' });
+  } else if (b.dataset.act === 'copy') {
+    var txt = rawText(i);
+    (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(function () { toast('Trip data copied'); }, function () {
+      var r = document.createRange(); r.selectNodeContents($('rawPre')); var s = getSelection(); s.removeAllRanges(); s.addRange(r); toast('Selected: copy it from here');
+    });
+  } else if (b.dataset.act === 'save') {
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([rawText(i)], { type: 'application/json' }));
+    a.download = 'trip-' + new Date(D.start[i]).toISOString().slice(0, 16).replace(/[:T]/g, '-') + '.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+  } else openTrip(i, true);
 });
 $('tripBack').addEventListener('click', function () { if (listBack) openList(listBack); });
 

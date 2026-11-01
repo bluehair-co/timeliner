@@ -2258,21 +2258,26 @@ function fillOffsets(R) {
     var o = z ? zoneOffset(z, ms) : null;
     return o == null ? NO_OFF : o;
   }
-  // Google's on-device Timeline.json writes winter time all year round on some older trips
-  // (UTC+1 for Spain in September). When the offset in the file is the place's offset in the
-  // other half of the year but not on the day, it is that mistake: use the place's offset.
-  // Any other difference is left as the file says, as the place's zone can be off by an hour
-  // near the zone borders inside a country.
-  function wrongSeason(off, lat, lng, ms) {
+  // Google's on-device Timeline.json writes the home time zone's winter time on some older
+  // trips, wherever they were (UTC+1 for Spain in September, and also UTC+1 for a trip in
+  // Canada). Two cases are that mistake, and get the place's offset instead:
+  // - the file's offset is the place's offset in the other half of the year but not on the day;
+  // - the file's offset is two hours or more from the place's, which no zone border explains.
+  // A smaller difference is left as the file says, as the place's zone can be off by an hour
+  // near the zone borders inside a country. An offset that matches where the trip ended
+  // (a flight, a trip across a border) is left too.
+  function wrongSeason(off, lat, lng, ms, lat2, lng2) {
     var o = offAt(lat, lng, ms);
     if (o === NO_OFF || o === off) return NO_OFF;
+    if (lat2 != null && offAt(lat2, lng2, ms) === off) return NO_OFF;
+    if (Math.abs(off - o) >= 120) return o;
     var y = new Date(ms).getUTCFullYear();
     return off === offAt(lat, lng, Date.UTC(y, 0, 15)) || off === offAt(lat, lng, Date.UTC(y, 6, 15)) ? o : NO_OFF;
   }
   var i, o;
   for (i = 0; R.off && i < R.off.length; i++) {
     if (R.off[i] !== NO_OFF) {
-      o = wrongSeason(R.off[i], R.from[2 * i], R.from[2 * i + 1], R.start[i]);
+      o = wrongSeason(R.off[i], R.from[2 * i], R.from[2 * i + 1], R.start[i], R.to[2 * i], R.to[2 * i + 1]);
       if (o !== NO_OFF) { R.off[i] = o; R.day[i] = Math.floor((R.start[i] + o * 60000) / 864e5); }
       continue;
     }

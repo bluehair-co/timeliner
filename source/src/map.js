@@ -554,8 +554,9 @@ function ccReach() {
 function visitedCountries() {
   var by = {}, r = ccReach();
   function add(k, d) { var c = by[k] || (by[k] = {}); c[d] = 1; }
-  for (var j = 0; j < r.nb; j++) { var i = sel[j]; add(D.cs[i], D.day[i]); if (D.end[i] <= r.t) add(D.ce[i], D.day[i]); }
-  for (var v = 0; v < r.nv; v++) add(D.vcc[selV[v]], D.vday[selV[v]]);
+  // Arrivals and the end of stays count on the day they happened, as in Insights.
+  for (var j = 0; j < r.nb; j++) { var i = sel[j]; add(D.cs[i], D.day[i]); if (D.end[i] <= r.t) add(D.ce[i], evDay(D.end[i], D.off[i])); }
+  for (var v = 0; v < r.nv; v++) { var w = selV[v]; add(D.vcc[w], D.vday[w]); if (D.ve[w] <= r.t) add(D.vcc[w], evDay(D.ve[w], D.voff[w])); }
   // Days between records count too, as in Insights; with the slider back in time, only up to then.
   gapDays(isFinite(r.t) ? evDay(r.t, NO_OFF) - 1 : Infinity, add);
   return Object.keys(by).map(function (k) { return { cc: D.ccList[k], days: Object.keys(by[k]).length }; }).filter(function (c) { return c.cc; });

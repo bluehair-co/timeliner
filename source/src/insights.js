@@ -411,7 +411,11 @@ function renderCountries() {
     if (!(cc in pd) || t < pd[cc]) pd[cc] = t;
   }
   for (var j = 0; j < sel.length; j++) { var i = sel[j]; add(D.cs[i], D.day[i], D.start[i]); add(D.ce[i], evDay(D.end[i], D.off[i]), D.end[i]); }
-  for (var v = 0; v < selV.length; v++) add(D.vcc[selV[v]], D.vday[selV[v]], D.vs[selV[v]]);
+  for (var v = 0; v < selV.length; v++) {
+    var w = selV[v];
+    add(D.vcc[w], D.vday[w], D.vs[w]);
+    add(D.vcc[w], evDay(D.ve[w], D.voff[w]), D.ve[w]);   // and the day the stay ended
+  }
   gapDays(Infinity, function (k, d) { add(k, d); });
   var list = Object.keys(by).map(function (k) { var c = by[k]; c.n = Object.keys(c.days).length; c.stops = []; c.stays = 0; return c; }).sort(function (a, b) { return b.n - a.n; });
   var visits = countryVisits();
@@ -450,7 +454,8 @@ function ccSeenList() {
   var ev = [], i;
   for (i = 0; i < D.day.length; i++) ev.push([D.start[i], D.day[i], D.ccList[D.cs[i]]], [D.end[i], evDay(D.end[i], D.off[i]), D.ccList[D.ce[i]]]);
   for (i = 0; i < D.vs.length; i++) ev.push([D.vs[i], D.vday[i], D.ccList[D.vcc[i]]], [D.ve[i], evDay(D.ve[i], D.voff[i]), D.ccList[D.vcc[i]]]);
-  ev = ev.filter(function (e) { return e[2]; }).sort(function (a, b) { return a[0] - b[0]; });
+  // By day (then time): local days can run backwards across time zones, and this list is searched by day.
+  ev = ev.filter(function (e) { return e[2]; }).sort(function (a, b) { return a[1] - b[1] || a[0] - b[0]; });
   ccSeen = { D: D, list: ev };
   return ev;
 }

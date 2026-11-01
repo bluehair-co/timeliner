@@ -346,6 +346,42 @@ function gapDays(last, add) {
     }
   });
 }
+// Where an event falls on the local day line: day number plus the fraction of the day.
+function evPos(ms, off) {
+  if (off !== NO_OFF) return (ms + off * 60000) / 864e5;
+  var d = new Date(ms);
+  return Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours(), d.getMinutes()) / 864e5;
+}
+// Visits: the selected trips and stays in time order, cut wherever the country changes.
+// A visit with others before and after it that lasted under a day is a short stop, and a
+// layover when you both flew in and flew out.
+var STOP_MS = 864e5;
+function countryVisits() {
+  var ev = [], fly = MODES.indexOf('FLYING'), j, i, v;
+  for (j = 0; j < sel.length; j++) {
+    i = sel[j];
+    var air = D.mode[i] === fly;
+    ev.push({ t: D.start[i], cc: D.ccList[D.cs[i]], off: D.off[i], dep: air }, { t: D.end[i], cc: D.ccList[D.ce[i]], off: D.off[i], arr: air });
+  }
+  for (j = 0; j < selV.length; j++) {
+    v = selV[j];
+    ev.push({ t: D.vs[v], cc: D.ccList[D.vcc[v]], off: D.voff[v] }, { t: D.ve[v], cc: D.ccList[D.vcc[v]], off: D.voff[v] });
+  }
+  ev = ev.filter(function (e) { return e.cc; }).sort(function (a, b) { return a.t - b.t; });
+  var out = [], cur = null;
+  ev.forEach(function (e) {
+    if (cur && cur.cc === e.cc) { cur.t1 = e.t; cur.p1 = evPos(e.t, e.off); cur.last = e; return; }
+    cur = { cc: e.cc, t0: e.t, t1: e.t, p0: evPos(e.t, e.off), p1: evPos(e.t, e.off), first: e, last: e };
+    out.push(cur);
+  });
+  out.forEach(function (x, k) {
+    x.ms = x.t1 - x.t0;
+    x.short = k > 0 && k < out.length - 1 && x.ms < STOP_MS;
+    x.layover = x.short && !!x.first.arr && !!x.last.dep;
+  });
+  return out;
+}
+function stopText(c) { return c.kind === 'layover' ? (c.stops.length > 1 ? fmt(c.stops.length) + ' layovers' : 'Layover') : c.stops.length > 1 ? fmt(c.stops.length) + ' short stops' : 'Short stop'; }
 function renderCountries() {
   var by = {}, perDay = {};   // perDay[day][cc] = earliest time seen there that day
   function add(k, d, t) {
@@ -360,15 +396,23 @@ function renderCountries() {
   for (var j = 0; j < sel.length; j++) { var i = sel[j]; add(D.cs[i], D.day[i], D.start[i]); add(D.ce[i], D.day[i], D.end[i]); }
   for (var v = 0; v < selV.length; v++) add(D.vcc[selV[v]], D.vday[selV[v]], D.vs[selV[v]]);
   gapDays(Infinity, function (k, d) { add(k, d); });
-  var list = Object.keys(by).map(function (k) { var c = by[k]; c.n = Object.keys(c.days).length; return c; }).sort(function (a, b) { return b.n - a.n; });
-  list.forEach(function (c, r) { c.color = ccColor(r); });
-  renderCcTimeline(list, perDay);
+  var list = Object.keys(by).map(function (k) { var c = by[k]; c.n = Object.keys(c.days).length; c.stops = []; c.stays = 0; return c; }).sort(function (a, b) { return b.n - a.n; });
+  var visits = countryVisits();
+  visits.forEach(function (x) { var c = by[x.cc]; if (c) { if (x.short) c.stops.push(x); else c.stays++; } });
+  // A country you only passed through: every visit there was a short stop.
+  list.forEach(function (c, r) {
+    c.color = ccColor(r);
+    c.kind = c.stays || !c.stops.length ? '' : c.stops.every(function (x) { return x.layover; }) ? 'layover' : 'stop';
+    c.stopMs = c.stops.reduce(function (a, x) { return a + x.ms; }, 0);
+  });
+  renderCcTimeline(list, perDay, visits);
   var many = list.length > 1;
-  $('ccNote').textContent = list.length ? fmt(list.length) + ' countr' + (list.length === 1 ? 'y' : 'ies') + ', by days you were there. Days between your records count too when you were in the same country before and after. Flights count only where they took off and landed.' : '';
+  var passed = list.filter(function (c) { return c.kind; }).length;
+  $('ccNote').textContent = list.length ? fmt(list.length) + ' countr' + (list.length === 1 ? 'y' : 'ies') + (passed ? ' (' + fmt(passed) + ' only passed through)' : '') + ', by days you were there. Days between your records count too when you were in the same country before and after. Flights count only where they took off and landed. A stop of under a day between other countries is a short stop, or a layover when you flew in and out.' : '';
   var max = list.length ? list[0].n : 1;
   $('ccList').innerHTML = list.length ? list.slice(0, 30).map(function (c) {
     return '<div class="hit-row" style="cursor:default"><span class="flag" aria-hidden="true" style="font-size:22px;width:28px;text-align:center">' + (flag(c.cc) || '·') + '</span>' +
-      '<span class="t"><b>' + esc(ccName(c.cc)) + '</b><small>' + (c.first === c.last ? niceDate(c.first) : niceDate(c.first) + ' – ' + niceDate(c.last)) + '</small><span class="meter" style="display:block;margin-top:6px"><i style="width:' + (c.n / max * 100).toFixed(1) + '%' + (many ? ';background:' + c.color : '') + '"></i></span></span>' +
+      '<span class="t"><b>' + esc(ccName(c.cc)) + '</b>' + (c.kind ? ' <span class="cc-stop">' + (c.kind === 'layover' ? icon('FLYING') : '') + stopText(c) + ' · ' + duration(c.stopMs) + '</span>' : '') + '<small>' + (c.first === c.last ? niceDate(c.first) : niceDate(c.first) + ' – ' + niceDate(c.last)) + '</small><span class="meter" style="display:block;margin-top:6px"><i style="width:' + (c.n / max * 100).toFixed(1) + '%' + (many ? ';background:' + c.color : '') + '"></i></span></span>' +
       '<span class="r num">' + fmt(c.n) + '<small>day' + (c.n > 1 ? 's' : '') + '</small></span></div>';
   }).join('') + (list.length > 30 ? '<p class="fine" style="margin-top:8px">And ' + fmt(list.length - 30) + ' more.</p>' : '') : '<p class="empty">No countries in this selection.</p>';
 }
@@ -381,7 +425,7 @@ function ccColor(r) {
   return 'repeating-linear-gradient(' + (t % 2 ? 45 : 135) + 'deg,' + c + ' 0 5px,color-mix(in srgb,' + c + ' 55%,#000) 5px 8px)';
 }
 var CT = null;   // the strip's state: period, day runs, zoom
-function renderCcTimeline(list, perDay) {
+function renderCcTimeline(list, perDay, visits) {
   var card = $('cctlCard');
   if (list.length < 2) { card.hidden = true; CT = null; return; }
   card.hidden = false;
@@ -389,21 +433,34 @@ function renderCcTimeline(list, perDay) {
   if (F.dm === 'one') { lo = periodStart(F.one, F.unit); hi = periodEnd(F.one, F.unit); }
   else if (F.dm === 'range' || F.dm === 'week') { lo = F.from; hi = F.to; }
   else { lo = Math.min.apply(null, days); hi = Math.max.apply(null, days); }
-  var byCc = {}, runs = [], d;
+  var byCc = {}, d;
   list.forEach(function (c) { byCc[c.cc] = c; });
-  // Runs of days in the same single country; a day in more than one country is a run of
-  // its own, split in the order you got there.
-  for (d = lo; d <= hi; d++) {
-    var pd = perDay[d];
-    if (!pd) continue;
-    var parts = Object.keys(pd).sort(function (a, b) { return pd[a] - pd[b]; }), last = runs[runs.length - 1];
-    if (parts.length === 1 && last && last.parts.length === 1 && last.parts[0] === parts[0] && last.d1 === d - 1) last.d1 = d;
-    else runs.push({ d0: d, d1: d, parts: parts });
+  // Which countries on a day you were in for more than a short stop.
+  var long = {};
+  visits.forEach(function (x) { if (!x.short) for (var k = Math.floor(x.p0); k <= Math.floor(x.p1); k++) long[k + '|' + x.cc] = 1; });
+  // Runs of days in the same single country. Split: a day in more than one country is a
+  // run of its own, in the order you got there. Not split (zoomed out): the day goes to the
+  // last country you got to that day that wasn't just a short stop.
+  function runsOf(split) {
+    var runs = [];
+    for (d = lo; d <= hi; d++) {
+      var pd = perDay[d];
+      if (!pd) continue;
+      var parts = Object.keys(pd).sort(function (a, b) { return pd[a] - pd[b]; }), last = runs[runs.length - 1];
+      if (!split && parts.length > 1) {
+        var main = parts.filter(function (cc) { return long[d + '|' + cc]; });
+        parts = [main.length ? main[main.length - 1] : parts[parts.length - 1]];
+      }
+      if (parts.length === 1 && last && last.parts.length === 1 && last.parts[0] === parts[0] && last.d1 === d - 1) last.d1 = d;
+      else runs.push({ d0: d, d1: d, parts: parts });
+    }
+    return runs;
   }
-  CT = { lo: lo, hi: hi, span: hi - lo + 1, runs: runs, list: list, byCc: byCc, fit: true, ppd: 1, on: null };
+  var stops = visits.filter(function (x) { return x.short && byCc[x.cc] && x.p1 >= lo && x.p0 < hi + 1; });
+  CT = { lo: lo, hi: hi, span: hi - lo + 1, runsS: runsOf(true), runsM: runsOf(false), runs: null, split: null, stops: stops, list: list, byCc: byCc, fit: true, ppd: 1, on: null };
   $('cctlInfo').textContent = '';
   $('cctlLegend').innerHTML = list.map(function (c) {
-    return '<button type="button" data-cc="' + c.cc + '"><span class="cctl-sw" style="background:' + c.color + '"></span>' + (flag(c.cc) ? flag(c.cc) + ' ' : '') + esc(ccName(c.cc)) + ' <small>' + fmt(c.n) + ' day' + (c.n > 1 ? 's' : '') + '</small></button>';
+    return '<button type="button" data-cc="' + c.cc + '"><span class="cctl-sw" style="background:' + c.color + '"></span>' + (flag(c.cc) ? flag(c.cc) + ' ' : '') + esc(ccName(c.cc)) + ' <small>' + fmt(c.n) + ' day' + (c.n > 1 ? 's' : '') + (c.kind ? ' · ' + stopText(c).toLowerCase() : '') + '</small></button>';
   }).join('');
   cctlFit();
 }
@@ -422,8 +479,10 @@ function cctlZoom(ppd, ax) {
   sc.scrollLeft = at * ppd - ax;
   cctlAxis();
 }
+var CCTL_SPLIT = 36;   // px per day from which a day in two countries is drawn split
 function cctlDraw() {
-  var ppd = CT.ppd, W = CT.span * ppd, h = [];
+  var ppd = CT.ppd, W = CT.span * ppd, h = [], split = ppd >= CCTL_SPLIT;
+  if (split !== CT.split) { CT.split = split; CT.runs = split ? CT.runsS : CT.runsM; if (CT.on) CT.on = { cc: CT.on.cc, r: null }; }
   $('cctlTrack').style.width = W + 'px';
   CT.runs.forEach(function (r, k) {
     var x = (r.d0 - CT.lo) * ppd, w = (r.d1 - r.d0 + 1) * ppd, pw = w / r.parts.length;
@@ -432,10 +491,16 @@ function cctlDraw() {
       if (pw >= 150 && r.parts.length === 1) lab = '<span class="f">' + flag(cc) + '</span>' + esc(ccName(cc)) + ' · ' + fmt(n) + ' day' + (n > 1 ? 's' : '');
       else if (pw >= 44 && r.parts.length === 1) lab = '<span class="f">' + flag(cc) + '</span>' + fmt(n) + 'd';
       else if (pw >= 24) lab = '<span class="f">' + flag(cc) + '</span>';
-      h.push('<b data-r="' + k + '" data-p="' + p + '" class="' + (pw >= 6 ? 'g ' : '') + (CT.on && (CT.on.cc === cc && (CT.on.r == null || CT.on.r === k && CT.on.p === p)) ? 'on' : '') + '" style="left:' + (x + p * pw).toFixed(2) + 'px;width:' + Math.max(pw, 1).toFixed(2) + 'px;background:' + c.color + '">' + lab + '</b>');
+      h.push('<b data-r="' + k + '" data-p="' + p + '" class="' + (pw >= 6 ? 'g ' : '') + (CT.on && (CT.on.cc === cc && (CT.on.r == null && CT.on.s == null || CT.on.r === k && CT.on.p === p)) ? 'on' : '') + '" style="left:' + (x + p * pw).toFixed(2) + 'px;width:' + Math.max(pw, 1).toFixed(2) + 'px;background:' + c.color + '">' + lab + '</b>');
     });
   });
   $('cctlBars').innerHTML = h.join('');
+  // Short stops and layovers as pins above the strip, at the time you were there, so they
+  // show at any zoom.
+  $('cctlPins').innerHTML = CT.stops.map(function (x, k) {
+    var c = CT.byCc[x.cc];
+    return '<button type="button" data-s="' + k + '" class="' + (x.layover ? 'air' : '') + (CT.on && CT.on.s === k ? ' on' : '') + '" style="left:' + (((x.p0 + x.p1) / 2 - CT.lo) * ppd).toFixed(1) + 'px;--c:' + c.color.replace(/^repeating.*?,(var\(--cc\d\)).*$/, '$1') + '" aria-label="' + esc(ccName(x.cc)) + (x.layover ? ' layover' : ' short stop') + '">' + (flag(x.cc) || '·') + '</button>';
+  }).join('');
   setPressed('#cctlCard .card-head .seg button', function (b) { return b.id === 'cctlFit' && CT.fit; });
   $('cctlOut').disabled = CT.fit; $('cctlIn').disabled = ppd >= Math.max(CCTL_MAX, cctlFitPpd()) * 0.999;
   cctlAxis();
@@ -483,6 +548,15 @@ function cctlSay(r, p) {
     ' <span class="fine" style="display:inline">(' + fmt(c.n) + ' in total)</span>';
   $('cctlBars').querySelectorAll('b').forEach(function (b) { b.classList.toggle('on', +b.dataset.r === r && +b.dataset.p === p); });
 }
+$('cctlPins').addEventListener('click', function (ev) {
+  var b = ev.target.closest('button[data-s]');
+  if (!b || !CT) return;
+  var k = +b.dataset.s, x = CT.stops[k], c = CT.byCc[x.cc];
+  CT.on = { cc: x.cc, r: null, s: k };
+  $('cctlBars').querySelectorAll('b.on').forEach(function (y) { y.classList.remove('on'); });
+  $('cctlPins').querySelectorAll('button').forEach(function (y) { y.classList.toggle('on', +y.dataset.s === k); });
+  $('cctlInfo').innerHTML = '<span class="cctl-sw" style="background:' + c.color + ';vertical-align:-1px"></span> <b>' + flag(x.cc) + ' ' + esc(ccName(x.cc)) + '</b> · ' + (x.layover ? 'layover' : 'short stop') + ' of ' + duration(x.ms) + ' · ' + clock(x.t0, x.first.off, true) + ' – ' + clock(x.t1, x.last.off, Math.floor(x.p1) !== Math.floor(x.p0));
+});
 $('cctlBars').addEventListener('click', function (ev) { var b = ev.target.closest('b[data-r]'); if (b && CT) cctlSay(+b.dataset.r, +b.dataset.p); });
 $('cctlLegend').addEventListener('click', function (ev) {
   var b = ev.target.closest('button[data-cc]');

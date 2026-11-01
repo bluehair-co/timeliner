@@ -539,6 +539,7 @@ function cctlZoom(ppd, ax) {
   sc.scrollLeft = at * ppd - ax;
   cctlAxis();
 }
+var CCTL_MONTHS = 1.1;   // px per day from which every month on the axis gets its name
 var CCTL_SPLIT = 36;   // px per day from which a day in two countries is drawn split
 function cctlDraw() {
   var ppd = CT.ppd, W = CT.span * ppd, h = [], split = ppd >= CCTL_SPLIT;
@@ -567,6 +568,7 @@ function cctlDraw() {
   var keep = {};
   order.forEach(function (k) {
     var x = CT.stops[k], px = ((x.p0 + x.p1) / 2 - CT.lo) * ppd, must = x.layover || CT.byCc[x.cc].kind;
+    if (x.layover && !x.visit && ppd < CCTL_MONTHS) return;   // true layovers only once months show
     if (!must && placed.some(function (q) { return Math.abs(q - px) < 20; })) return;
     placed.push(px); keep[k] = 1;
   });
@@ -589,14 +591,14 @@ function cctlAxis() {
     var x = dayToDate(d), dd = x.getUTCDate(), m = x.getUTCMonth(), y = x.getUTCFullYear(), t = null;
     if (ppd >= 18) t = dd === 1 ? [true, MONTHS[m] + ' ' + y] : [false, String(dd)];
     else if (ppd >= 3.5) t = dd === 1 ? [true, m ? MONTHS[m] : MONTHS[m] + ' ' + y] : x.getUTCDay() === 1 ? [false, String(dd)] : null;
-    else if (ppd >= 0.7) t = dd === 1 ? (m ? [false, MONTHS[m]] : [true, String(y)]) : null;
+    else if (ppd >= CCTL_MONTHS) t = dd === 1 ? (m ? [false, MONTHS[m]] : [true, String(y)]) : null;
     else t = dd === 1 && !m ? [true, String(y)] : dd === 1 && ppd * 30 >= 6 ? [false, ''] : null;
     if (t) ticks.push({ x: (d - CT.lo) * ppd, major: t[0], text: t[1] });
   }
   // Labels left to right; a month or year label wins over a day label it would overlap.
   // The left edge always says which month (or year) you're looking at.
   var x0 = sc.scrollLeft, e = dayToDate(Math.min(CT.hi, CT.lo + Math.floor(x0 / ppd))), shown = [];
-  var edge = { x: x0, major: true, text: ppd >= 0.7 ? MONTHS[e.getUTCMonth()] + ' ' + e.getUTCFullYear() : String(e.getUTCFullYear()) };
+  var edge = { x: x0, major: true, text: ppd >= CCTL_MONTHS ? MONTHS[e.getUTCMonth()] + ' ' + e.getUTCFullYear() : String(e.getUTCFullYear()) };
   edge.w = edge.text.length * 7 + 10;
   ticks = ticks.filter(function (t) { return !(t.text && t.major && t.x >= x0 - 1 && t.x < x0 + edge.w); });
   shown.push(edge);
